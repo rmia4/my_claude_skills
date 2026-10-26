@@ -38,47 +38,24 @@ const OTHER = { claude: "codex", codex: "claude" };
 const WHO = Object.keys(NAMES);
 
 
-// ── 기본 도구 (Python 원본과 같은 판정·출력을 내기 위한 것) ─────────────
+// ── 기본 도구 ────────────────────────────────────────────────────────
 class FormatError extends Error {}
 class Halt extends Error {}
-class Exit extends Error {   // sys.exit와 같다: 메시지를 stderr에 쓰고 종료 코드를 남긴다
+class Exit extends Error {   // 메시지를 stderr에 쓰고 종료 코드를 남기고 끝낸다
   constructor(message, code = 1) { super(message); this.code = code; }
 }
 const die = (msg) => { throw new Exit(msg); };
 
 const isStr = (v) => typeof v === "string";
 const isDict = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+// AI·진행자가 준 키로 객체를 볼 때 프로토타입 속성(constructor 등)을 잡지 않도록 자기 속성만 본다
 const has = (o, k) => typeof k === "string" && Object.hasOwn(o, k);
 const own = (o, k) => (has(o, k) ? o[k] : undefined);
+const isEmpty = (o) => Object.keys(o).length === 0;
 
-function truthy(v) {   // Python의 참·거짓: 빈 문자열·목록·객체, 0, null은 거짓
-  if (v == null) return false;
-  if (isStr(v) || Array.isArray(v)) return v.length > 0;
-  if (typeof v === "object") return Object.keys(v).length > 0;
-  return Boolean(v);
-}
-
-function pyStr(v) {   // 오류 메시지에 AI가 준 값을 넣을 때 Python과 같은 글자로
-  if (v == null) return "None";
-  if (typeof v === "boolean") return v ? "True" : "False";
-  return isStr(v) ? v : JSON.stringify(v);
-}
-
-function pyDumps(v) {   // json.dumps(ensure_ascii=False)와 같은 모양 (", " / ": " 구분)
-  if (Array.isArray(v)) return "[" + v.map(pyDumps).join(", ") + "]";
-  if (isDict(v)) return "{" + Object.entries(v).map(([k, x]) => JSON.stringify(k) + ": " + pyDumps(x)).join(", ") + "}";
-  return JSON.stringify(v);
-}
-
-function splitlines(s) {
-  const lines = s.split(/\r\n|\r|\n/);
-  if (lines.at(-1) === "") lines.pop();
-  return lines;
-}
-
-// 읽을 때는 줄바꿈을 \n으로, 쓸 때는 운영체제 줄바꿈으로 (Python 텍스트 모드와 같다)
+// 기록 파일은 LF로 쓴다. 읽을 때는 CRLF로 저장된 파일도 받는다
 const readText = (p) => fs.readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
-const writeText = (p, s) => fs.writeFileSync(p, s.replace(/\n/g, os.EOL), "utf8");
+const writeText = (p, s) => fs.writeFileSync(p, s, "utf8");
 const posix = (p) => p.split(path.sep).join("/");
 const print = (s = "") => process.stdout.write(s + "\n");
 
@@ -248,7 +225,7 @@ function save(d, st) {
   fs.renameSync(tmp, path.join(d, "state.json"));
 }
 
-const appendLog = (d, text) => fs.appendFileSync(path.join(d, "log.md"), (text + "\n").replace(/\n/g, os.EOL), "utf8");
+const appendLog = (d, text) => fs.appendFileSync(path.join(d, "log.md"), text + "\n", "utf8");
 
 const RAW_WRITTEN = [];   // 이번 실행에서 저장한 raw 파일 (상태 출력용)
 
@@ -440,7 +417,7 @@ async function stepReview(st, d) {
         nw.points[pid] = {
           problem, grounds,
           criterion: isStr(p.criterion) ? p.criterion : "",
-          replacement: isDict(rep) && truthy(rep.text) ? rep : null,
+          replacement: isDict(rep) && rep.text ? rep : null,
           status: "open", closed_how: null, clash: 0,
           history: [{ round: rnd, who: y, action: "new", text: grounds }],
         };
@@ -448,7 +425,7 @@ async function stepReview(st, d) {
       }
       const pid = p.id;
       const cur = isStr(pid) ? own(nw.points, pid) : undefined;
-      if (cur == null || cur.status === "closed") throw new FormatError(`${pyStr(pid)}: 없는 지적이거나 이미 종료된 지적입니다`);
+      if (cur == null || cur.status === "closed") throw new FormatError(`${pid}: 없는 지적이거나 이미 종료된 지적입니다`);
       if (seen.has(pid)) throw new FormatError(`${pid}: 두 번 응답했습니다`);
       seen.add(pid);
       const allowed = { accepted: ["confirm", "keep"], rebutted: ["withdraw", "keep"] }[cur.status];
@@ -524,7 +501,7 @@ async function stepRevise(st, d) {
       if (!isDict(r)) throw new FormatError(`responses[${i}]가 객체가 아닙니다`);
       const pid = r.id;
       const cur = isStr(pid) ? own(nw.points, pid) : undefined;
-      if (cur == null || cur.status !== "open") throw new FormatError(`${pyStr(pid)}: 응답할 차례인 지적이 아닙니다`);
+      if (cur == null || cur.status !== "open") throw new FormatError(`${pid}: 응답할 차례인 지적이 아닙니다`);
       if (seen.has(pid)) throw new FormatError(`${pid}: 두 번 응답했습니다`);
       seen.add(pid);
       if (r.reply === "accept") {
@@ -607,7 +584,7 @@ function printStatus(d, st) {
     const stall = p.status === "open" && p.clash >= 2 ? " · 교착" : "";
     print(`  ${pid} ${state}${stall}: ${p.problem}`);
   }
-  if (truthy(st.last_raw)) print("이번 단계 원문: " + st.last_raw.join(", "));
+  if (st.last_raw?.length) print("이번 단계 원문: " + st.last_raw.join(", "));
   if (st.status === "done") {
     print("\n" + report(st));
     print(`기록: ${path.join(d, "log.md")}`);
@@ -641,7 +618,7 @@ function fakeConsensus(st, tag, who, attempt) {
   const sc = st.scenario, rnd = st.round, pts = st.points;
   if (tag === "r1") {
     const crit = { criteria: [`${NAMES[who]} 기준`, "비용"] };
-    return `(${NAMES[who]}) 독립 답변\n\n\`\`\`json\n${pyDumps(crit)}\n\`\`\``;
+    return `(${NAMES[who]}) 독립 답변\n\n\`\`\`json\n${JSON.stringify(crit)}\n\`\`\``;
   }
   if (tag === "draft") return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v1`;
   if (tag.endsWith("review")) {
@@ -661,7 +638,7 @@ function fakeConsensus(st, tag, who, attempt) {
     }
     let approve = out.every((o) => ["confirm", "withdraw"].includes(o.action));
     if (sc === "badapprove" && rnd === 1 && attempt === 1) approve = true;
-    return `검토 의견\n\n\`\`\`json\n${pyDumps({ points: out, approve })}\n\`\`\``;
+    return `검토 의견\n\n\`\`\`json\n${JSON.stringify({ points: out, approve })}\n\`\`\``;
   }
   const rs = [];
   Object.entries(pts).filter(([, p]) => p.status === "open").forEach(([pid], i) => {
@@ -670,7 +647,7 @@ function fakeConsensus(st, tag, who, attempt) {
     else rs.push({ id: pid, reply: "accept", applied: "as_is" });
   });
   return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v${st.draft_version + 1}\n\n`
-    + `\`\`\`json\n${pyDumps({ responses: rs })}\n\`\`\``;
+    + `\`\`\`json\n${JSON.stringify({ responses: rs })}\n\`\`\``;
 }
 
 // wording·converge는 판정 모드 전용, badapprove는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
@@ -768,7 +745,7 @@ function roundExample(st, who, rnd, ids) {
     r.stall = null;
     rows.push(r);
   }
-  const items = rows.map(pyDumps).join(",\n  ");
+  const items = rows.map((r) => JSON.stringify(r)).join(",\n  ");
   return '```json\n{"items": [\n  ' + items + '\n], "new_issues": '
     + '[{"question": "...", "grounds": "...", "impact": "결론에 미치는 영향"}]}\n```\n';
 }
@@ -827,7 +804,7 @@ function parseItems(data, expected, parseOne, strict) {
   rows.forEach((r, i) => {
     const iid = isDict(r) ? r.id : null;
     if (!expected.includes(iid)) {
-      errors.push(`items[${i}]: 응답할 항목이 아닙니다 (${pyStr(iid)})`);
+      errors.push(`items[${i}]: 응답할 항목이 아닙니다 (${iid})`);
     } else if (has(got, iid)) {
       errors.push(`${iid}: 두 번 응답했습니다`);
     } else {
@@ -849,8 +826,7 @@ function parseItems(data, expected, parseOne, strict) {
 
 function parseList(data, key, fields, cap, strict) {
   // missing_issues·new_issues 검사. 필드가 없으면 빈 목록으로 본다
-  const v = truthy(data) ? data[key] : undefined;
-  const rows = truthy(v) ? v : [];
+  const rows = data?.[key] ?? [];
   if (!Array.isArray(rows)) {
     if (strict) throw new FormatError(`'${key}'는 목록이어야 합니다`);
     return [];
@@ -879,7 +855,7 @@ function jBoth(st, d, tag, prompts, make) {
 
 function posText(it, w) {
   const p = own(it.positions, w);
-  if (!truthy(p)) return "(아직 없음)";
+  if (!p) return "(아직 없음)";
   return p.text + (p.grounds ? `\n  근거: ${p.grounds}` : "");
 }
 
@@ -1058,7 +1034,7 @@ async function jstepR2(st, d) {
       if (Object.keys(props).length === 2 && props.claude.revise !== props.codex.revise) {
         it.status = "wording_conflict";
         log += `- ${iid}: 양측이 서로 다른 표현 수정안 → 표현 충돌\n`;
-      } else if (truthy(props)) {
+      } else if (!isEmpty(props)) {
         log += `- ${iid}: 표현 수정안 (${Object.keys(props).map((w) => NAMES[w]).join(", ")}) → 진행자 반영 대기\n`;
       }
     } else if (it.kind === "agree_candidate") {
@@ -1067,7 +1043,7 @@ async function jstepR2(st, d) {
         it.status = "agreed";
         it.resolution = { by: "agreement", text: it.text, round: 2 };
         it.notes = Object.fromEntries(WHO.filter((w) => r[w].note).map((w) => [w, r[w].note]));
-        log += `- ${iid}: 양측 확인 → 합의` + (truthy(it.notes) ? " (단서 있음)" : "") + "\n";
+        log += `- ${iid}: 양측 확인 → 합의` + (!isEmpty(it.notes) ? " (단서 있음)" : "") + "\n";
         continue;
       }
       it.kind = "issue";
@@ -1112,7 +1088,7 @@ async function jstepR2(st, d) {
   }
   appendLog(d, log);
   const mark = "### R2 처리\n";
-  st.last_summary = splitlines(log.slice(log.indexOf(mark) + mark.length));
+  st.last_summary = log.slice(log.indexOf(mark) + mark.length).trimEnd().split("\n");
   [st.round, st.phase, st.pending_step] = [2, "baseline", "round"];
   return st;
 }
@@ -1271,7 +1247,7 @@ async function jstepRound(st, d) {
   }
   appendLog(d, log);
   const mark = `### 라운드 ${rnd} 처리\n`;
-  st.last_summary = splitlines(log.slice(log.indexOf(mark) + mark.length).trim());
+  st.last_summary = log.slice(log.indexOf(mark) + mark.length).trim().split("\n");
   return st;
 }
 
@@ -1296,7 +1272,7 @@ async function jstepFinal(st, d) {
   const make = (who, strict) => (body, data, err = null) => {
     let c, out;
     try {
-      c = truthy(data) ? data.checks : undefined;
+      c = data?.checks;
       if (!isDict(c) || CHECKS.some((k) => !["ok", "problem"].includes(own(c, k)))) {
         throw new FormatError(`'checks'에 ${CHECKS.join(", ")}가 각각 ok 또는 problem으로 있어야 합니다`);
       }
@@ -1344,11 +1320,11 @@ function judgeBlockers(st) {
   const step = st.pending_step;
   if (st.status === "halted" || ["r1", "final_review"].includes(step)) return [];
   if (step == null) return ["지금은 실행할 AI 단계가 없습니다"];
-  if (step === "r2") return truthy(st.items) ? [] : ["쟁점표 초안을 먼저 edit로 넘겨야 합니다"];
+  if (step === "r2") return !isEmpty(st.items) ? [] : ["쟁점표 초안을 먼저 edit로 넘겨야 합니다"];
   let out = [];
   for (const [iid, it] of Object.entries(st.items)) {
     if (it.status === "wording_conflict") out.push(`${iid} 표현 충돌: pick-wording으로 골라야 합니다`);
-    else if (it.status === "open" && truthy(it.wording_proposals)) out.push(`${iid} 표현 수정안이 반영되지 않았습니다 (edit op revise)`);
+    else if (it.status === "open" && !isEmpty(it.wording_proposals)) out.push(`${iid} 표현 수정안이 반영되지 않았습니다 (edit op revise)`);
   }
   out = out.concat(st.missing_issues.filter((m) => !m.handled).map((m) => `${m.id} 빠진 쟁점 제안이 반영되지 않았습니다 (edit op add)`));
   out = out.concat(Object.entries(st.items).filter(([, it]) => it.converge && it.status === "open")
@@ -1372,7 +1348,7 @@ function printJudge(d, st) {
     print("\n[요구사항]");
     for (const r of st.requirements) print(`  ${r.id}: ${r.text}` + (r.round ? ` (R${r.round} 뒤 추가)` : ""));
   }
-  if (truthy(st.last_summary)) print("\n[직전 AI 단계 처리]\n" + st.last_summary.join("\n"));
+  if (st.last_summary?.length) print("\n[직전 AI 단계 처리]\n" + st.last_summary.join("\n"));
   print("\n[쟁점표]\n" + tableText(st));
   const ms = st.missing_issues.filter((m) => !m.handled);
   if (ms.length) {
@@ -1401,7 +1377,7 @@ function printJudge(d, st) {
       }
     }
   }
-  if (truthy(st.last_raw)) print("\n직전 AI 단계 원문: " + st.last_raw.join(", "));
+  if (st.last_raw?.length) print("\n직전 AI 단계 원문: " + st.last_raw.join(", "));
   print(`전체 기록: ${posix(path.join(d, "log.md"))}`);
   if (st.status === "done") return;
   const cmds = PHASE_CMDS[st.phase];
@@ -1417,7 +1393,7 @@ function printJudge(d, st) {
 function fakeJudge(st, tag, who, attempt) {
   // --dry-run 용 가짜 응답 (판정 모드). scenario로 철회·교착·최대 라운드·표현 충돌·형식 오류·호출 실패를 만든다
   const sc = st.scenario, items = st.items;
-  const block = (obj) => `(${NAMES[who]}) ${tag} 본문\n\n\`\`\`json\n${pyDumps(obj)}\n\`\`\``;
+  const block = (obj) => `(${NAMES[who]}) ${tag} 본문\n\n\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
 
   if (tag === "r1") return `(${NAMES[who]}) 독립 답변`;
   if (sc === "callfail") throw new Error("가짜 호출 실패");
@@ -1534,7 +1510,7 @@ function editTable(st, data) {
       addItem(st, prefix, newItem(kind, text, "moderator", owner));
     });
   }
-  if (!truthy(st.items)) throw new FormatError("쟁점표에 항목이 하나도 없습니다");
+  if (isEmpty(st.items)) throw new FormatError("쟁점표에 항목이 하나도 없습니다");
 }
 
 function editOps(st, ops) {
@@ -1548,8 +1524,8 @@ function editOps(st, ops) {
     if (!isDict(op) || !allowed.includes(op.op)) throw new FormatError(`${where}: 지금 단계에서 쓸 수 있는 op는 ${allowed.join(", ")}입니다`);
     if (op.op === "revise") {
       const it = own(st.items, op.id);
-      if (!it || it.status !== "open" || !truthy(it.wording_proposals)) {
-        throw new FormatError(`${where}: 표현 수정안이 있는 논의 중 쟁점에만 쓸 수 있습니다 (${pyStr(op.id)})`);
+      if (!it || it.status !== "open" || isEmpty(it.wording_proposals)) {
+        throw new FormatError(`${where}: 표현 수정안이 있는 논의 중 쟁점에만 쓸 수 있습니다 (${op.id})`);
       }
       if (!has(it.wording_proposals, op.source)) {
         throw new FormatError(`${where}: source에는 수정안을 낸 AI(${Object.keys(it.wording_proposals).join(", ")})를 적어라`);
@@ -1586,7 +1562,7 @@ function editOps(st, ops) {
       // 수렴 신호가 있는 쟁점을 진행자가 판단한다. 결론 문안은 두 입장 문장 안에서만 쓴다
       const it = own(st.items, op.id);
       if (!it || !["open", "deferred"].includes(it.status) || !it.converge) {
-        throw new FormatError(`${where}: 수렴 신호가 있는 논의 중·보류 쟁점에만 쓸 수 있습니다 (${pyStr(op.id)})`);
+        throw new FormatError(`${where}: 수렴 신호가 있는 논의 중·보류 쟁점에만 쓸 수 있습니다 (${op.id})`);
       }
       if (!["agree", "open"].includes(op.decision)) throw new FormatError(`${where}: decision은 agree 또는 open이어야 합니다`);
       const reason = needStr(op, "reason", where);
@@ -1602,7 +1578,7 @@ function editOps(st, ops) {
       it.converge = null;
     } else {
       const it = own(st.items, op.id);
-      if (!it || it.status !== "open") throw new FormatError(`${where}: 논의 중인 쟁점에만 쓸 수 있습니다 (${pyStr(op.id)})`);
+      if (!it || it.status !== "open") throw new FormatError(`${where}: 논의 중인 쟁점에만 쓸 수 있습니다 (${op.id})`);
       const who = op.who;
       if (!has(NAMES, who)) throw new FormatError(`${where}: who는 claude 또는 codex여야 합니다`);
       const reason = needStr(op, "reason", where);
@@ -1834,14 +1810,13 @@ const MODES = { consensus: [STEPS, STEP_KO, printStatus], judge: [J_STEPS, J_STE
 // ── 명령 ─────────────────────────────────────────────────────────────
 async function cmdStart(a) {
   const spec = JSON.parse(readText(a.spec));
-  const sget = (k, def) => (has(spec, k) ? spec[k] : def);   // dict.get과 같다: 값이 null이어도 그대로 쓴다
-  const mode = sget("mode", "consensus");
+  const mode = spec.mode ?? "consensus";
   if (!has(MODES, mode)) die(`mode는 ${Object.keys(MODES).join(" 또는 ")}여야 합니다`);
   const topic = (spec.topic || "").trim();
   if (!topic) die("spec에 topic이 필요합니다");
-  const files = sget("context", []);
+  const files = spec.context ?? [];
   const context = files.map((f) => `--- ${f} ---\n${readText(f)}`).join("\n\n");
-  let workdir = sget("workdir", null);
+  let workdir = spec.workdir ?? null;
   if (workdir) {
     workdir = path.resolve(workdir);
     if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) die(`폴더가 없습니다: ${workdir}`);
@@ -1866,12 +1841,12 @@ async function cmdStart(a) {
     + (a.dry_run ? "- dry-run: " + a.scenario + "\n" : "");
   let st;
   if (mode === "judge") {
-    const reqs = sget("requirements", []);
+    const reqs = spec.requirements ?? [];
     st = {
-      id: name, mode: "judge", topic, background: sget("background", ""),
+      id: name, mode: "judge", topic, background: spec.background ?? "",
       requirements: reqs.map((t, i) => ({ id: `Q${i + 1}`, text: t, round: 0 })),
       context_files: files, context, workdir,
-      max_rounds: Math.max(3, Math.trunc(Number(sget("max_rounds", 5)))),   // R1, R2 포함
+      max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 5))),   // R1, R2 포함
       dry_run: a.dry_run, scenario: a.scenario,
       status: "running", pending_step: "r1", halt_reason: null,
       phase: "draft", round: 0, r1: {}, items: {},
@@ -1884,9 +1859,9 @@ async function cmdStart(a) {
   } else {
     st = {
       id: name, mode: "consensus", topic,
-      background: sget("background", ""), requirements: sget("requirements", []),
+      background: spec.background ?? "", requirements: spec.requirements ?? [],
       context_files: files, context, workdir,
-      max_rounds: Math.max(2, Math.trunc(Number(sget("max_rounds", 5)))),
+      max_rounds: Math.max(2, Math.trunc(Number(spec.max_rounds ?? 5))),
       author, dry_run: a.dry_run, scenario: a.scenario,
       status: "running", pending_step: "r1", halt_reason: null,
       round: 0, r1: {}, criteria: {}, draft: "", draft_version: 0,
@@ -1926,7 +1901,7 @@ function cmdShow(a) {
 }
 
 
-// ── 명령줄 해석 (argparse와 같은 명령·인자) ────────────────────────────
+// ── 명령줄 해석 ──────────────────────────────────────────────────────
 const ID = { name: "id" };
 const ITEM = { name: "item" };
 const WHO_ARG = { name: "who", choices: WHO };
@@ -2007,14 +1982,12 @@ function parseArgs(argv) {
       break;
     }
     if (tok === "-h" || tok === "--help") return printHelp(cmd);
-    if (!tok.startsWith("--") || tok === "--") {
+    if (!tok.startsWith("--")) {
       pos.push(tok);
       continue;
     }
-    const [key, inline] = tok.slice(2).split(/=(.*)/s);
-    const hits = Object.keys(opts).filter((k) => k === key || k.startsWith(key));   // argparse처럼 앞부분만 써도 된다
-    const k = hits.includes(key) ? key : hits.length === 1 ? hits[0] : null;
-    if (k == null) fail(cmd, `알 수 없는 인자입니다: ${tok}`);
+    const [k, inline] = tok.slice(2).split(/=(.*)/s);
+    if (!has(opts, k)) fail(cmd, `알 수 없는 인자입니다: ${tok}`);
     const o = opts[k], dest = k.replaceAll("-", "_");
     if (o.flag) {
       a[dest] = true;
