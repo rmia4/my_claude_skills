@@ -11,6 +11,7 @@
                         proposal, reopen, final-draft, final, final-fix, confirm, end (-h로 사용법 확인)
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
   --mode judge|consensus를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
+  start에서는 spec의 mode와 비교한다
 
 spec.json 예 (mode는 필수: "consensus" 또는 "judge". via는 선택: 호출한 진입점, 예 "start")
   {"mode": "consensus", "topic": "...", "background": "...",
@@ -1831,6 +1832,9 @@ async function cmdStart(a) {
   const spec = JSON.parse(readText(a.spec));
   const mode = spec.mode;
   if (!has(MODES, mode)) die(`spec의 mode는 ${Object.keys(MODES).join(" 또는 ")}여야 합니다\n${SPEC_EXAMPLE}`);
+  if (a.mode && a.mode !== mode) {
+    die(`spec의 mode(${mode})가 --mode ${a.mode}와 다릅니다. /ai-discussion:${a.mode} 스킬이면 spec의 mode를 "${a.mode}"로 쓰세요`);
+  }
   const topic = (spec.topic || "").trim();
   if (!topic) die(`spec에 topic이 필요합니다\n${SPEC_EXAMPLE}`);
   if (!a.dry_run) {
@@ -1958,9 +1962,9 @@ const COMMANDS = {
   confirm: { help: "최종 확정", fn: cmdConfirm, args: [ID] },
   end: { help: "판정 없이 종료", fn: cmdEnd, args: [ID] },
 };
-// 토의를 여는 모든 명령에 --mode를 둔다
+// 토의를 여는 모든 명령과 start에 --mode를 둔다 (start는 spec의 mode와 비교)
 for (const c of Object.values(COMMANDS)) {
-  if (c.args.includes(ID)) c.opts = { ...c.opts, mode: { choices: Object.keys(MODES), help: "토의 mode가 다르면 거부" } };
+  if (c.args.includes(ID) || c.fn === cmdStart) c.opts = { ...c.opts, mode: { choices: Object.keys(MODES), help: "토의 mode가 다르면 거부" } };
 }
 
 function usage(cmd, c) {
@@ -2043,7 +2047,7 @@ function parseArgs(argv) {
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!a) return;
-  if (a.mode) checkMode(a);
+  if (a.mode && a.fn !== cmdStart) checkMode(a);
   await a.fn(a);
 }
 

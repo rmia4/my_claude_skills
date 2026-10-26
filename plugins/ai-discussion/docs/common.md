@@ -33,7 +33,7 @@ discussions/20261026-1030_주제/
 ## 모드 확인
 
 - 새 spec에는 `mode`가 필수다. 없으면 `start`가 spec 예시와 함께 거부한다. 0.2.x에서 mode 없이 저장된 state는 `consensus`로 읽는다.
-- 토의를 여는 모든 명령은 `--mode judge|consensus`를 받는다. 주면 `last`나 지정 id를 실제 토의로 찾은 뒤 state의 mode와 비교하고, 다르면 거부하며 맞는 스킬(`/ai-discussion:<mode>`)을 알려 준다. 모드 스킬은 항상 붙이고, `start` 스킬은 재개할 모드를 알아낼 때만 빼고 `show`를 부른다.
+- 토의를 여는 모든 명령은 `--mode judge|consensus`를 받는다. 주면 `last`나 지정 id를 실제 토의로 찾은 뒤 state의 mode와 비교하고, 다르면 거부하며 맞는 스킬(`/ai-discussion:<mode>`)을 알려 준다. `start` 명령도 `--mode`를 받으며, spec의 mode와 다르면 거부한다. 모드 스킬은 항상 붙이고, `start` 스킬은 재개할 모드를 알아낼 때만 빼고 `show`를 부른다.
 - spec의 `via`(예: `"start"`)는 state에 그대로 남긴다. `start` 스킬의 사용 비율을 보고 제거 여부를 판단하는 데 쓴다.
 - `start`는 `claude`·`codex` CLI가 PATH에 없으면 시작하지 않는다(dry-run 제외).
 

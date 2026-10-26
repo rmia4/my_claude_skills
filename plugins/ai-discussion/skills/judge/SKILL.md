@@ -11,7 +11,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 
 - 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs` (아래에서 `$SCRIPT`)
   - 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
-- 모든 명령: `node "$SCRIPT" <명령> <id> ... --mode judge`. **`--mode judge`는 항상 붙인다**(아래 예에서는 생략). 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
+- 모든 명령: `node "$SCRIPT" <명령> <id> ... --mode judge`. **`--mode judge`는 `start`를 포함해 항상 붙인다**(아래 예에서는 생략). `start`는 `start --spec <파일> --mode judge`로 쓰고, spec의 mode가 다르면 스크립트가 거부한다. 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
 - `<id>`는 `last`(가장 최근 토의) 또는 사용자가 지정한 토의 이름을 쓴다.
 - **AI를 부르는 명령(`start`, `next`, `final`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(한 단계 1~3분). 기다리는 동안 폴링하지 않는다. 나머지 명령은 바로 실행한다.
 - 명령 출력 끝의 "next 전에 할 일"과 "쓸 수 있는 명령"을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
