@@ -26,11 +26,11 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
 2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
 3. 정리한 내용을 채팅 본문으로 보이고 시작 승인을 받는다. 첫 초안 작성자는 토의마다 번갈아 정해진다고 알린다.
 4. 승인되면 spec 파일을 쓰고 `start --spec <파일> --mode consensus`를 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"consensus"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5).
+   - spec 필드: `mode`(항상 `"consensus"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5), `clean_final`(합의 뒤 토의 경과 표현을 뺀 정리본을 만들지, 기본 true).
    - start에서 넘어왔으면 `"via": "start"`를 넣는다.
 
 ## 1. 진행
 
 - `start`가 끝나면 `run last --mode consensus`를 백그라운드로 **한 번만** 실행한다. 스크립트가 종료나 중단까지 단계를 이어서 실행한다. 진행자는 판단하지 않는다.
 - 끝났다는 알림이 올 때까지 기다린다. 단계별 진행 보고는 하지 않는다. 사용자가 중간 상태를 물으면 `show last --mode consensus`로 본다.
-- 끝나면 결과 보고를 보인다. 최종 초안은 `discussions/<id>/final.md` 링크로 남긴다.
+- 끝나면 결과 보고를 보인다. 최종본은 `discussions/<id>/final.md` 링크로 남긴다(정리본이면 정리 전 초안 `final_raw.md`도).

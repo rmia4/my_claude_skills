@@ -7,6 +7,7 @@
   start --spec spec.json   토의를 만들고 첫 단계(R1)를 실행한다
   next <id>                다음 단계를 실행한다 (중단된 단계는 다시 실행)
   show <id>                현재 상태와 결과를 출력한다
+  자동 합의 모드 전용: run <id> (종료나 중단까지 단계를 이어서 실행, 중단이면 종료 코드 1)
   사용자 판정 모드 전용: edit, judge, judge-all, note, req, defer, exclude, pick-wording,
                         proposal, reopen, final-draft, final, final-fix, confirm, end (-h로 사용법 확인)
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
@@ -16,7 +17,7 @@
 spec.json 예 (mode는 필수: "consensus" 또는 "judge". via는 선택: 호출한 진입점, 예 "start")
   {"mode": "consensus", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
-   "max_rounds": 5}
+   "max_rounds": 5, "clean_final": true}   (clean_final은 자동 합의 모드 전용, 기본 true)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -297,7 +298,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
 
 
 // ── 자동 합의 모드 (docs/consensus-mode-flow.md) ──────────────────────
-const STEP_KO = { r1: "R1 독립 답변", draft: "통합 초안", review: "검토", revise: "수정" };
+const STEP_KO = { r1: "R1 독립 답변", draft: "통합 초안", review: "검토", revise: "수정", clean: "정리본" };
 const HOW_KO = { applied: "반영", modified: "고쳐 반영", withdrawn: "철회" };
 
 const REVIEW_JSON = `\`\`\`json
@@ -320,9 +321,34 @@ const REVISE_JSON = `\`\`\`json
   {"id": "P3", "reply": "rebut", "grounds": "..."}
 ], "edits": [
   {"target": "현재 초안에서 바꿀 원문 구간", "text": "그 자리에 들어갈 새 문안"}
-], "full_rewrite": false}
+], "full_rewrite": false, "questions": []}
 \`\`\`
 `;
+
+const QUESTIONS_RULE = "검토자에게 확인받을 미정 사항(남은 쟁점, 검토 요청)은 본문에 적지 말고 JSON의 questions에 한 문장씩 넣어라. "
+  + "검토자가 동의하거나 반대 의견을 내야 합의할 수 있다. 없으면 빈 목록으로 둔다.\n";
+
+function parseQuestions(data) {
+  const q = data.questions ?? [];
+  if (!Array.isArray(q) || !q.every((x) => isStr(x) && x.trim())) throw new FormatError("'questions'는 문자열 목록이어야 합니다");
+  return q.map((x) => x.trim());
+}
+
+function addQuestions(st, qs, rnd) {
+  // 작성자 질문은 수용된 지적처럼 등록한다. 검토자가 confirm(동의) 또는 keep(반대, 근거 필수)으로 답해야 닫힌다.
+  // 로그에 덧붙일 질문 목록(P번호 포함)을 돌려준다
+  let log = "";
+  for (const q of qs) {
+    log += `- P${st.next_point}: ${q}\n`;
+    st.points[`P${st.next_point}`] = {
+      problem: `[작성자 질문] ${q}`, grounds: "작성자가 검토자 확인을 요청함", criterion: "", replacement: null, raised_by: "author",
+      status: "accepted", applied: "as_is", closed_how: null, clash: 0,
+      history: [{ round: rnd, who: st.author, action: "question", text: q }],
+    };
+    st.next_point += 1;
+  }
+  return log ? `\n\n작성자 질문:\n${log}` : "";
+}
 
 function header(st, who) {
   const tools = st.workdir
@@ -413,13 +439,19 @@ async function stepDraft(st, d) {
   const prompt = header(st, x) + "\n[2단계: 통합 초안]\n너는 작성자다. 아래 두 독립 답변을 대등하게 검토해 "
     + `하나의 통합 초안을 써라. 이후 ${NAMES[y]}가 이 초안을 검토하고 지적한다.\n`
     + "초안 첫머리에 '## 판단 기준' 절을 두고 양측 판단 기준을 합친 목록을 적어라. "
-    + "기준을 빼거나 합쳤다면 그 이유를 함께 적어라.\n응답에는 초안 본문만 써라.\n\n"
+    + "기준을 빼거나 합쳤다면 그 이유를 함께 적어라.\n본문에는 초안만 써라. " + QUESTIONS_RULE + "\n"
     + `[너의 독립 답변]\n${st.r1[x]}\n\n[너의 판단 기준]\n${bullets(st.criteria[x])}\n`
     + `[${NAMES[y]}의 독립 답변]\n${st.r1[y]}\n\n`
-    + `[${NAMES[y]}의 판단 기준]\n${bullets(st.criteria[y])}`;
-  st.draft = await callStep(st, d, x, "draft", prompt, false, (body) => body);
+    + `[${NAMES[y]}의 판단 기준]\n${bullets(st.criteria[y])}`
+    + JSON_TAIL + '```json\n{"questions": ["검토자에게 확인받을 미정 사항"]}\n```\n';
+  const validate = (body, data) => {
+    if (!body) throw new FormatError("본문(초안)이 비어 있습니다");
+    return [body, parseQuestions(data)];
+  };
+  const [draft, qs] = await callStep(st, d, x, "draft", prompt, true, validate);
+  st.draft = draft;
   [st.draft_version, st.round, st.pending_step] = [1, 1, "review"];
-  appendLog(d, `\n## 초안 v1 · ${NAMES[x]}\n\n${st.draft}`);
+  appendLog(d, `\n## 초안 v1 · ${NAMES[x]}\n\n${st.draft}` + addQuestions(st, qs, 1));
   return st;
 }
 
@@ -446,6 +478,10 @@ async function stepReview(st, d) {
     s += "\n[응답할 지적] 아래 지적마다 정확히 한 번씩 응답하라.\n";
     for (const pid of awaiting) {
       const p = st.points[pid], h = lastBy(p, x);
+      if (h.action === "question") {
+        s += `- ${pid}: ${NAMES[x]}의 질문 — ${h.text}\n  동의하면 confirm, 다른 의견이면 keep(근거 필수)\n`;
+        continue;
+      }
       const kind = p.status === "accepted" ? "수용" : "반박";
       s += pointText(pid, p, `  ${NAMES[x]}의 응답: ${kind}` + (h.text ? ` — ${h.text}` : "") + "\n");
     }
@@ -535,7 +571,11 @@ async function stepReview(st, d) {
   appendLog(d, log);
 
   const left = unresolved(st);
-  if (!left.length) return finish(st, d, "합의");
+  if (!left.length) {
+    if (!st.clean_final) return finish(st, d, "합의");
+    st.pending_step = "clean";
+    return st;
+  }
   if (rnd >= st.max_rounds) return finish(st, d, "합의 실패", "최대 라운드 도달");
   if (left.every((pid) => st.points[pid].clash >= 2)) return finish(st, d, "합의 실패", "남은 지적이 모두 교착");
   st.round += 1;
@@ -563,8 +603,9 @@ async function stepRevise(st, d) {
     + "(한 번만 나오도록 앞뒤 문맥을 넣는다), text는 그 자리에 들어갈 새 문안이다. edits는 적힌 순서대로 적용된다. "
     + "지적과 관계없는 부분은 바꾸지 마라. 본문에는 지적별 응답 설명만 짧게 써라.\n"
     + "구조가 크게 바뀌어 edits로 나타내기 어려울 때만 full_rewrite를 true로 하고 본문에 수정된 초안 전체를 써라.\n"
-    + JSON_TAIL + REVISE_JSON;
+    + QUESTIONS_RULE + JSON_TAIL + REVISE_JSON;
 
+  let qlog = "";
   const validate = (body, data) => {
     if (data.full_rewrite === true && !body) throw new FormatError("full_rewrite인데 본문(수정된 초안)이 비어 있습니다");
     const nw = structuredClone(st);
@@ -595,6 +636,7 @@ async function stepRevise(st, d) {
     const missing = opens.filter((pid) => !seen.has(pid));
     if (missing.length) throw new FormatError(`응답하지 않은 지적: ${missing.join(", ")}`);
     const draft = data.full_rewrite === true ? body : applyEdits(st.draft, data.edits);
+    qlog = addQuestions(nw, parseQuestions(data), rnd);
     nw.prev_draft = st.draft;   // 다음 검토에서 바뀐 절을 알려 주기 위해
     nw.draft = draft;
     nw.draft_version += 1;
@@ -608,14 +650,28 @@ async function stepRevise(st, d) {
     const h = st.points[pid].history.at(-1);
     log += `- ${pid} ${h.action}` + (h.text ? `: ${h.text}` : "") + "\n";
   }
-  appendLog(d, log + `\n${st.draft}`);
+  appendLog(d, log + `\n${st.draft}` + qlog);
   return st;
+}
+
+async function stepClean(st, d) {
+  // 합의 뒤 작성자가 토의 경과 표현만 뺀 정리본을 만든다. 내용이 바뀌지 않는 정리라 검토자 재확인은 하지 않는다
+  const x = st.author;
+  const prompt = header(st, x) + "\n[정리본 작성]\n토의가 합의로 끝났다. 아래 합의된 최종 초안을 그대로 쓸 수 있는 문서로 정리하라.\n"
+    + "- 결론·수치·범위와 판단 근거 문장은 바꾸지 마라. 내용을 더하거나 빼지 마라.\n"
+    + "- 토의 경과 표현만 뺀다: 누가 제안·채택했는지(예: 'Codex 안을 채택'), 몇 라운드·어느 지적(P번호)에 따라 바뀌었는지, "
+    + "취소선으로 남긴 옛 문안.\n- 응답에는 정리된 문서 본문만 써라.\n\n"
+    + `[합의된 최종 초안 v${st.draft_version}]\n${st.draft}\n`;
+  st.clean = await callStep(st, d, x, "clean", prompt, false, (body) => body);
+  appendLog(d, `\n## 정리본 · ${NAMES[x]}\n\nfinal.md에 저장했다. 정리 전 초안(v${st.draft_version})은 final_raw.md에 남긴다.`);
+  return finish(st, d, "합의");
 }
 
 function finish(st, d, result, reason = "") {
   [st.status, st.pending_step] = ["done", null];
   [st.result, st.fail_reason] = [result, reason];
-  writeText(path.join(d, "final.md"), st.draft);
+  if (st.clean) writeText(path.join(d, "final_raw.md"), st.draft);
+  writeText(path.join(d, "final.md"), st.clean ?? st.draft);
   appendLog(d, "\n" + report(st));
   return st;
 }
@@ -623,7 +679,9 @@ function finish(st, d, result, reason = "") {
 function report(st) {
   const x = st.author, y = OTHER[st.author];
   let s = `## 결과: ${st.result}` + (st.fail_reason ? ` (${st.fail_reason})` : "") + "\n\n";
-  s += `- 작성자: ${NAMES[x]} / 검토자: ${NAMES[y]}\n- 최종 초안: final.md (v${st.draft_version})\n`;
+  s += `- 작성자: ${NAMES[x]} / 검토자: ${NAMES[y]}\n`
+    + (st.clean ? `- 최종본: final.md (정리본) · 정리 전 초안: final_raw.md (v${st.draft_version})\n`
+      : `- 최종 초안: final.md (v${st.draft_version})\n`);
   const closed = Object.entries(st.points).filter(([, p]) => p.status === "closed");
   if (closed.length) s += "\n지적 처리:\n" + closed.map(([pid, p]) => `- ${pid} ${HOW_KO[p.closed_how]}: ${p.problem}\n`).join("");
   const missed = Object.entries(st.points).filter(([, p]) => p.scope === "missed").map(([pid]) => pid);
@@ -653,7 +711,7 @@ function printStatus(d, st) {
   } else if (st.status === "halted") {
     print(`상태: 중단 · ${STEP_KO[st.pending_step]} 단계 · 사유: ${st.halt_reason}`);
   } else {
-    const who = { r1: "두 AI", draft: NAMES[x], review: NAMES[y], revise: NAMES[x] }[st.pending_step];
+    const who = { r1: "두 AI", draft: NAMES[x], review: NAMES[y], revise: NAMES[x], clean: NAMES[x] }[st.pending_step];
     print(`상태: 진행 중 · 라운드 ${st.round}/${st.max_rounds} · 다음 단계 ${STEP_KO[st.pending_step]} (${who})`);
   }
   const wait = { open: `${NAMES[x]} 응답 대기`, accepted: `${NAMES[y]} 확인 대기(수용됨)`, rebutted: `${NAMES[y]} 응답 대기(반박됨)` };
@@ -690,7 +748,7 @@ async function runPending(d, st, show = true) {
   return st;
 }
 
-const STEPS = { r1: stepR1, draft: stepDraft, review: stepReview, revise: stepRevise };
+const STEPS = { r1: stepR1, draft: stepDraft, review: stepReview, revise: stepRevise, clean: stepClean };
 
 function fakeConsensus(st, tag, who, attempt) {
   // --dry-run 용 가짜 응답. scenario로 합의·교착·최대 라운드·형식 오류·호출 실패를 만든다
@@ -699,7 +757,11 @@ function fakeConsensus(st, tag, who, attempt) {
     const crit = { criteria: [`${NAMES[who]} 기준`, "비용"] };
     return `(${NAMES[who]}) 독립 답변\n\n\`\`\`json\n${JSON.stringify(crit)}\n\`\`\``;
   }
-  if (tag === "draft") return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v1`;
+  if (tag === "draft") {
+    const questions = sc === "question" ? ["가짜 작성자 질문"] : [];
+    return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v1\n\n\`\`\`json\n${JSON.stringify({ questions })}\n\`\`\``;
+  }
+  if (tag === "clean") return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 정리본`;
   if (tag.endsWith("review")) {
     if (sc === "callfail") throw new Error("가짜 호출 실패");
     if (rnd === 1 && (sc === "format_halt" || (sc === "format" && attempt === 1))) {
@@ -707,6 +769,7 @@ function fakeConsensus(st, tag, who, attempt) {
     }
     let out = [];
     for (const [pid, p] of Object.entries(pts)) {
+      if (sc === "question" && p.raised_by === "author" && attempt === 1) continue;   // 첫 시도는 작성자 질문을 빠뜨린다
       if (p.status === "accepted") out.push({ id: pid, action: sc === "maxround" ? "keep" : "confirm", grounds: "가짜 근거" });
       else if (p.status === "rebutted") out.push({ id: pid, action: sc === "stall" ? "keep" : "withdraw", grounds: "가짜 근거" });
     }
@@ -739,8 +802,9 @@ function fakeConsensus(st, tag, who, attempt) {
   return `지적별 응답 설명\n\n\`\`\`json\n${JSON.stringify({ responses: rs, edits })}\n\`\`\``;
 }
 
-// wording·converge는 판정 모드 전용, badapprove·late_point·patch_miss는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
-const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge", "late_point", "patch_miss"];
+// wording·converge는 판정 모드 전용, badapprove·late_point·patch_miss·question은 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
+const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge",
+  "late_point", "patch_miss", "question"];
 
 function nextAuthor() {
   // 토의마다 첫 작성자를 번갈아 정한다 (직전 자동 합의 토의의 반대쪽)
@@ -1977,6 +2041,7 @@ async function cmdStart(a) {
       status: "running", pending_step: "r1", halt_reason: null,
       round: 0, r1: {}, criteria: {}, draft: "", draft_version: 0,
       points: {}, next_point: 1, result: null, fail_reason: "",
+      clean_final: spec.clean_final ?? true,   // 합의 뒤 토의 경과 표현을 뺀 정리본을 만든다
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: AI 자동 합의\n- 시작: ${clock(now)}\n`
