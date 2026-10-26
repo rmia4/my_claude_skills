@@ -305,6 +305,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 1. discussion.py 수정 — 완료
 2. dry-run 검증 — 완료
 3. 스킬 작성 — 완료 (2026-10-26). 이름을 `/toui`로 바꿔 개인 스킬 `~/.claude/skills/toui/SKILL.md`로 만들었다. 스크립트는 이 폴더에 두고 전체 경로로 부른다.
+   - 나중에(2026-10-26) `ai-discussion` 플러그인으로 옮겼다. 스킬은 `skills/toui/SKILL.md`, 스크립트는 `scripts/discussion.py`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다. 개인 스킬은 지웠다.
 4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
 
 ## 구현하며 정한 것 (2026-10-26)
