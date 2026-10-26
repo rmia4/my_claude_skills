@@ -303,13 +303,14 @@ const HOW_KO = { applied: "반영", modified: "고쳐 반영", withdrawn: "철�
 const REVIEW_JSON = `\`\`\`json
 {"points": [
   {"id": null, "action": "new", "problem": "...", "grounds": "...", "criterion": "해당 판단 기준",
-   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}},
+   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}, "scope": "changed"},
   {"id": "P2", "action": "keep", "grounds": "..."},
   {"id": "P3", "action": "withdraw", "grounds": "..."},
   {"id": "P4", "action": "confirm"}
 ], "approve": false}
 \`\`\`
 - 새 지적은 id를 null로 둔다. replacement는 필요할 때만 쓴다.
+- scope는 라운드 2부터 쓴다: 직전 수정에서 바뀐 부분이나 그 영향이면 changed, 원래 있던 내용을 놓친 것이면 missed와 놓친 이유(reason).
 `;
 
 const REVISE_JSON = `\`\`\`json
@@ -346,6 +347,22 @@ function pointText(pid, p, extra = "") {
 }
 
 const unresolved = (st) => Object.entries(st.points).filter(([, p]) => p.status !== "closed").map(([pid]) => pid);
+
+function changedSections(prev, cur) {
+  // 제목(#~###) 단위로 나눠 직전 초안과 달라진 절의 제목을 돌려준다. 사라진 절은 "(삭제)"를 붙인다
+  const split = (t) => {
+    const m = new Map();
+    let head = "(첫머리)";
+    for (const line of t.split("\n")) {
+      if (/^#{1,3} /.test(line)) head = line.replace(/^#+ /, "").trim();
+      m.set(head, (m.get(head) ?? "") + line + "\n");
+    }
+    return m;
+  };
+  const a = split(prev), b = split(cur);
+  return [...b].filter(([h, t]) => a.get(h) !== t).map(([h]) => h)
+    .concat([...a.keys()].filter((h) => !b.has(h)).map((h) => `${h} (삭제)`));
+}
 
 function newCap(st) {
   if (st.round === 1) return 5;
@@ -399,7 +416,15 @@ async function stepReview(st, d) {
     + `\n[너의 독립 답변]\n${st.r1[y]}\n\n[너의 판단 기준]\n${bullets(st.criteria[y])}`
     + `\n[${NAMES[x]}의 판단 기준]\n${bullets(st.criteria[x])}`
     + `\n[현재 초안 v${st.draft_version}]\n${st.draft}\n`;
-  if (rnd === 1) s += "\n초안의 판단 기준 처리(제외·병합)에 이의가 있으면 그것도 지적으로 올려라.\n";
+  if (rnd === 1) {
+    s += "\n초안의 판단 기준 처리(제외·병합)에 이의가 있으면 그것도 지적으로 올려라.\n"
+      + "초안 전체를 끝까지 검토하고, 지적할 것을 이번에 모두 내라. 다음 라운드부터는 그 사이 바뀐 부분과 그 영향에 대한 지적만 낼 수 있다.\n";
+  } else if (cap) {
+    const ch = changedSections(st.prev_draft, st.draft);
+    s += `\n[직전 수정(v${st.draft_version - 1} → v${st.draft_version})에서 바뀐 절]\n` + (ch.length ? bullets(ch) : "- 없음\n")
+      + "새 지적은 바뀐 부분이나 그 영향에 대해서만 낸다(scope: changed). "
+      + "1라운드에 냈어야 할, 원래 있던 내용을 놓친 지적이면 scope: missed와 놓친 이유(reason)를 적어라.\n";
+  }
   if (awaiting.length) {
     s += "\n[응답할 지적] 아래 지적마다 정확히 한 번씩 응답하라.\n";
     for (const pid of awaiting) {
@@ -432,12 +457,19 @@ async function stepReview(st, d) {
         const where = `새 지적 ${added}`;
         const problem = needStr(p, "problem", where), grounds = needStr(p, "grounds", where);
         const rep = p.replacement;
+        let scope = null, scopeReason = "";
+        if (rnd > 1) {
+          scope = p.scope;
+          if (!["changed", "missed"].includes(scope)) throw new FormatError(`${where}: scope는 changed 또는 missed여야 합니다`);
+          if (scope === "missed") scopeReason = needStr(p, "reason", where);
+        }
         const pid = `P${nw.next_point}`;
         nw.next_point += 1;
         nw.points[pid] = {
           problem, grounds,
           criterion: isStr(p.criterion) ? p.criterion : "",
           replacement: isDict(rep) && rep.text ? rep : null,
+          ...(scope ? { scope, scope_reason: scopeReason } : {}),
           status: "open", closed_how: null, clash: 0,
           history: [{ round: rnd, who: y, action: "new", text: grounds }],
         };
@@ -477,8 +509,9 @@ async function stepReview(st, d) {
   for (const [pid, p] of Object.entries(st.points)) {
     for (const h of p.history) {
       if (h.round === rnd && h.who === y) {
-        const detail = (h.action === "new" ? p.problem + " / " : "") + h.text;
-        log += `- ${pid} ${h.action}` + (detail ? `: ${detail}` : "") + "\n";
+        const isNew = h.action === "new";
+        const detail = (isNew ? p.problem + " / " : "") + h.text + (isNew && p.scope_reason ? ` / 놓친 이유: ${p.scope_reason}` : "");
+        log += `- ${pid} ${h.action}` + (isNew && p.scope ? ` [${p.scope}]` : "") + (detail ? `: ${detail}` : "") + "\n";
       }
     }
   }
@@ -540,6 +573,7 @@ async function stepRevise(st, d) {
     });
     const missing = opens.filter((pid) => !seen.has(pid));
     if (missing.length) throw new FormatError(`응답하지 않은 지적: ${missing.join(", ")}`);
+    nw.prev_draft = st.draft;   // 다음 검토에서 바뀐 절을 알려 주기 위해
     nw.draft = body;
     nw.draft_version += 1;
     nw.pending_step = "review";
@@ -570,6 +604,8 @@ function report(st) {
   s += `- 작성자: ${NAMES[x]} / 검토자: ${NAMES[y]}\n- 최종 초안: final.md (v${st.draft_version})\n`;
   const closed = Object.entries(st.points).filter(([, p]) => p.status === "closed");
   if (closed.length) s += "\n지적 처리:\n" + closed.map(([pid, p]) => `- ${pid} ${HOW_KO[p.closed_how]}: ${p.problem}\n`).join("");
+  const missed = Object.entries(st.points).filter(([, p]) => p.scope === "missed").map(([pid]) => pid);
+  if (missed.length) s += `\n라운드 2 이후에 나온, 놓친 지적(missed): ${missed.join(", ")}\n`;
   const withdrawn = closed.filter(([, p]) => p.closed_how === "withdrawn");
   s += `\n철회된 지적: ${withdrawn.length}개\n`;
   s += withdrawn.map(([pid, p]) => `- ${pid} 철회 근거: ${lastBy(p, y).text}\n`).join("");
@@ -652,6 +688,10 @@ function fakeConsensus(st, tag, who, attempt) {
       if (p.status === "accepted") out.push({ id: pid, action: sc === "maxround" ? "keep" : "confirm", grounds: "가짜 근거" });
       else if (p.status === "rebutted") out.push({ id: pid, action: sc === "stall" ? "keep" : "withdraw", grounds: "가짜 근거" });
     }
+    if (sc === "late_point" && rnd === 2) {   // 첫 시도는 scope를 빠뜨려 형식 오류를 낸다
+      out.push({ id: null, action: "new", problem: "늦게 나온 문제", grounds: "가짜 근거", criterion: "비용",
+        ...(attempt > 1 ? { scope: "missed", reason: "가짜 놓친 이유" } : {}) });
+    }
     if (rnd === 1) {
       const n = ["stall", "maxround"].includes(sc) ? 1 : 2;
       out = out.concat(Array.from({ length: n }, (_, i) =>
@@ -671,8 +711,8 @@ function fakeConsensus(st, tag, who, attempt) {
     + `\`\`\`json\n${JSON.stringify({ responses: rs })}\n\`\`\``;
 }
 
-// wording·converge는 판정 모드 전용, badapprove는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
-const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge"];
+// wording·converge는 판정 모드 전용, badapprove·late_point는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
+const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge", "late_point"];
 
 function nextAuthor() {
   // 토의마다 첫 작성자를 번갈아 정한다 (직전 자동 합의 토의의 반대쪽)
