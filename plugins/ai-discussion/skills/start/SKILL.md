@@ -1,13 +1,13 @@
 ---
-name: toui
-description: Claude와 Codex 두 AI가 한 주제를 함께 토의하게 하고, 진행자로서 쟁점표를 관리하며 사용자가 판정하거나(사용자 판정 모드) 두 AI가 스스로 합의하게(자동 합의 모드) 진행한다. 사용자가 "/toui", "토의", "두 AI에게 토의시켜", "Claude랑 Codex 의견 비교", "AI끼리 합의" 같은 말을 할 때 쓴다.
+name: start
+description: Claude와 Codex 두 AI가 한 주제를 함께 토의하게 하고, 진행자로서 쟁점표를 관리하며 사용자가 판정하거나(사용자 판정 모드) 두 AI가 스스로 합의하게(자동 합의 모드) 진행한다. 사용자가 "/ai-discussion:start", "토의", "두 AI에게 토의시켜", "Claude랑 Codex 의견 비교", "AI끼리 합의" 같은 말을 할 때 쓴다.
 ---
 
-# /toui — Claude × Codex 토의 진행
+# /ai-discussion:start — Claude × Codex 토의 진행
 
 너는 이 토의의 **진행자**다. 토의 당사자는 새 세션으로 호출되는 Claude와 Codex이고, 결론은 사용자(판정 모드)나 두 AI의 합의(자동 합의 모드)가 정한다. 절차는 스크립트가 처리한다.
 
-- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.py` (아래에서 `$TOUI`)
+- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.py` (아래에서 `$SCRIPT`)
   - 보통은 위 경로가 실제 설치 경로로 채워져 있다. 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.py`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
 - 설계 문서: `${CLAUDE_PLUGIN_ROOT}/docs/`의 `common.md`, `judge-mode-flow.md`, `consensus-mode-flow.md`. 아래 절차로 판단이 서지 않을 때만 읽는다.
 - 필요한 것: Python 3, `claude` CLI, `codex` CLI가 PATH에 있어야 한다. 없으면 시작 전에 사용자에게 알린다.
@@ -23,7 +23,7 @@ description: Claude와 Codex 두 AI가 한 주제를 함께 토의하게 하고,
 
 ## 실행 방법
 
-- 모든 명령: `python "$TOUI" <명령> <id> ...` (`$TOUI`는 위 스크립트의 절대 경로로 적는다)
+- 모든 명령: `python "$SCRIPT" <명령> <id> ...` (`$SCRIPT`는 위 스크립트의 절대 경로로 적는다)
 - `<id>` 자리에는 `last`(가장 최근 토의)를 쓰면 된다.
 - **AI를 부르는 명령(`start`, `next`, `final`)은 Bash `run_in_background: true`로 실행**하고, 끝났다는 알림을 기다린다. 한 단계에 1~3분 걸린다. 기다리는 동안 폴링하지 않는다.
 - 끝나면 출력 파일을 읽어 결과를 보인다. 나머지 명령은 바로 실행한다.

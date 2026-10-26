@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "ai-discussion",
-      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다 (/ai-discussion:toui)",
+      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다 (/ai-discussion:start)",
       "source": "./plugins/ai-discussion",
       "category": "productivity"
     }

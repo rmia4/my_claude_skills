@@ -6,7 +6,7 @@ Claude Code 플러그인 마켓플레이스입니다.
 
 | 플러그인 | 스킬 | 내용 |
 |---|---|---|
-| `ai-discussion` | `/ai-discussion:toui` | Claude와 Codex가 한 주제를 함께 토의하게 합니다. 사용자가 쟁점마다 판정하는 모드와 두 AI가 스스로 합의하는 모드가 있습니다. |
+| `ai-discussion` | `/ai-discussion:start` | Claude와 Codex가 한 주제를 함께 토의하게 합니다. 사용자가 쟁점마다 판정하는 모드와 두 AI가 스스로 합의하는 모드가 있습니다. |
 
 ## 설치
 
@@ -27,7 +27,7 @@ claude plugin marketplace add rmia4/my_claude_skills#ai_discussion
 claude plugin install ai-discussion@my-claude-skills
 ```
 
-설치한 뒤 Claude Code를 다시 시작하면 `/ai-discussion:toui`를 쓸 수 있습니다. "Claude랑 Codex에게 토의시켜" 같은 말로도 불립니다.
+설치한 뒤 Claude Code를 다시 시작하면 `/ai-discussion:start`를 쓸 수 있습니다. "Claude랑 Codex에게 토의시켜" 같은 말로도 불립니다.
 
 ## 필요한 것
 
@@ -44,7 +44,7 @@ claude plugin install ai-discussion@my-claude-skills
 .claude-plugin/marketplace.json      마켓플레이스 목록
 plugins/ai-discussion/
   .claude-plugin/plugin.json         플러그인 정보
-  skills/toui/SKILL.md               진행 절차 (스킬)
+  skills/start/SKILL.md              진행 절차 (스킬)
   scripts/discussion.py              AI 호출·상태 저장·규칙 적용 스크립트
   docs/                              설계 문서
 ```
