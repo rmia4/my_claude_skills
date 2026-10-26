@@ -595,11 +595,11 @@ function printStatus(d, st) {
     print("\n" + report(st));
     print(`기록: ${path.join(d, "log.md")}`);
   } else {
-    print(`다음: node discussion.mjs next ${path.basename(d)} --mode consensus`);
+    print(`다음: node discussion.mjs run ${path.basename(d)} --mode consensus`);
   }
 }
 
-async function runPending(d, st) {
+async function runPending(d, st, show = true) {
   WORKDIR = st.workdir;
   const step = st.pending_step;
   const [steps, stepKo, showFn] = MODES[st.mode];
@@ -614,7 +614,8 @@ async function runPending(d, st) {
   }
   st.last_raw = [...RAW_WRITTEN];
   save(d, st);
-  showFn(d, st);
+  if (show) showFn(d, st);
+  return st;
 }
 
 const STEPS = { r1: stepR1, draft: stepDraft, review: stepReview, revise: stepRevise };
@@ -1922,6 +1923,23 @@ async function cmdNext(a) {
   await runPending(d, st);
 }
 
+async function cmdRun(a) {
+  // 자동 합의 토의를 종료나 중단까지 이어서 실행한다. 중단된 토의는 그 단계부터 다시 실행한다
+  const d = discussionDir(a.id);
+  let st = load(d);
+  if (st.mode !== "consensus") die("run은 자동 합의 토의에서만 쓸 수 있습니다. 사용자 판정 토의는 next로 진행하세요");
+  while (st.status !== "done") {
+    const step = st.pending_step;
+    st = await runPending(d, st, false);
+    const left = unresolved(st);
+    print(`- ${STEP_KO[step]} ${st.status === "halted" ? "중단" : "끝"} · 라운드 ${st.round}/${st.max_rounds} · 남은 지적 ${left.length ? left.join(", ") : "없음"}`);
+    if (st.status === "halted") break;
+  }
+  print();
+  printStatus(d, st);
+  if (st.status === "halted") process.exitCode = 1;
+}
+
 function cmdShow(a) {
   const d = discussionDir(a.id);
   const st = load(d);
@@ -1944,6 +1962,7 @@ const COMMANDS = {
     },
   },
   next: { help: "다음 단계 실행 (중단된 단계는 다시 실행)", fn: cmdNext, args: [ID], opts: { scenario: { choices: SCENARIOS, help: "dry-run 시나리오 변경" } } },
+  run: { help: "자동 합의 토의를 끝날 때까지 실행 (중단되면 종료 코드 1)", fn: cmdRun, args: [ID] },
   show: { help: "현재 상태 출력", fn: cmdShow, args: [ID] },
   // 사용자 판정 모드 전용 명령 (docs/judge-mode-flow.md "하위 명령")
   edit: { help: "쟁점표 작성·수정 (진행자)", fn: cmdEdit, args: [ID], opts: FILE_OPT("쟁점표 초안 또는 op 목록 JSON") },

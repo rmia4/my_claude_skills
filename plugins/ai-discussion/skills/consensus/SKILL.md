@@ -13,11 +13,11 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
   - 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
 - 모든 명령: `node "$SCRIPT" <명령> <id> --mode consensus`. **`--mode consensus`는 `start`를 포함해 항상 붙인다.** `start`는 `start --spec <파일> --mode consensus`로 쓰고, spec의 mode가 다르면 스크립트가 거부한다. 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
 - `<id>`는 `last`(가장 최근 토의) 또는 사용자가 지정한 토의 이름을 쓴다.
-- **AI를 부르는 명령(`start`, `next`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(한 단계 1~3분). 기다리는 동안 폴링하지 않는다.
+- **AI를 부르는 명령(`start`, `run`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(`start`는 1~3분, `run`은 10~20분). 기다리는 동안 폴링하지 않는다.
 - 명령 출력 끝의 "다음" 줄을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
 - spec 파일은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
 - **AI 본문은 채팅에 옮기지 않는다.** 원문은 `discussions/<id>/raw/...` 파일 링크로만 남긴다.
-- 중단·재개: 출력에 "상태: 중단"이 나오면 사유를 알리고, 호출 실패면 `next`로 같은 단계를 다시 실행한다. 상태가 헷갈리면 `show`로 다시 본다.
+- 중단·재개: 출력에 "상태: 중단"이 나오면(`run`의 종료 코드 1) 사유를 알리고, 호출 실패면 `run`을 다시 실행해 그 단계부터 이어 간다. 상태가 헷갈리면 `show`로 다시 본다.
 - 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `consensus-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
 
 ## 0. 준비 (사용자 승인 필요)
@@ -31,6 +31,6 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
 
 ## 1. 진행
 
-- 이후에는 `next last`만 백그라운드로 되풀이한다. 진행자는 판단하지 않는다.
-- 단계마다 진행 상황(라운드, 지적 상태)을 한두 줄로 알린다. 원문은 raw 링크로만 남긴다.
+- `start`가 끝나면 `run last --mode consensus`를 백그라운드로 **한 번만** 실행한다. 스크립트가 종료나 중단까지 단계를 이어서 실행한다. 진행자는 판단하지 않는다.
+- 끝났다는 알림이 올 때까지 기다린다. 단계별 진행 보고는 하지 않는다. 사용자가 중간 상태를 물으면 `show last --mode consensus`로 본다.
 - 끝나면 결과 보고를 보인다. 최종 초안은 `discussions/<id>/final.md` 링크로 남긴다.
