@@ -318,7 +318,9 @@ const REVISE_JSON = `\`\`\`json
   {"id": "P1", "reply": "accept", "applied": "as_is"},
   {"id": "P2", "reply": "accept", "applied": "modified", "reason": "..."},
   {"id": "P3", "reply": "rebut", "grounds": "..."}
-]}
+], "edits": [
+  {"target": "현재 초안에서 바꿀 원문 구간", "text": "그 자리에 들어갈 새 문안"}
+], "full_rewrite": false}
 \`\`\`
 `;
 
@@ -362,6 +364,21 @@ function changedSections(prev, cur) {
   const a = split(prev), b = split(cur);
   return [...b].filter(([h, t]) => a.get(h) !== t).map(([h]) => h)
     .concat([...a.keys()].filter((h) => !b.has(h)).map((h) => `${h} (삭제)`));
+}
+
+function applyEdits(draft, edits) {
+  // 수정 패치를 순서대로 적용한다. target은 그 시점의 초안에서 정확히 한 번 나와야 한다
+  if (!Array.isArray(edits)) throw new FormatError("'edits' 목록이 필요합니다 (초안 전체를 다시 썼다면 full_rewrite: true)");
+  edits.forEach((e, i) => {
+    if (!isDict(e) || !isStr(e.target) || !e.target || !isStr(e.text)) {
+      throw new FormatError(`edits[${i}]: target(비어 있지 않은 문자열)과 text(문자열)가 필요합니다`);
+    }
+    const n = draft.split(e.target).length - 1;
+    if (n === 0) throw new FormatError(`edits[${i}]: target이 현재 초안에 없습니다. 초안의 원문을 그대로 옮겨라: ${e.target.slice(0, 60)}`);
+    if (n > 1) throw new FormatError(`edits[${i}]: target이 현재 초안에 ${n}번 나옵니다. 앞뒤 문맥을 더 넣어 한 번만 나오게 하라`);
+    draft = draft.replace(e.target, () => e.text);
+  });
+  return draft;
 }
 
 function newCap(st) {
@@ -542,10 +559,14 @@ async function stepRevise(st, d) {
   s += "- 수용(accept): 초안에 반영한다. 지적(또는 대체 문안)대로 반영했으면 applied=as_is, "
     + "고쳐서 반영했으면 applied=modified와 이유(reason)\n"
     + "- 반박(rebut): 반영하지 않고 근거(grounds)를 적는다\n"
-    + "본문에는 수정된 초안 전체를 써라. 지적과 관계없는 부분은 바꾸지 마라.\n" + JSON_TAIL + REVISE_JSON;
+    + "초안 전체를 다시 쓰지 말고, 바꿀 부분만 edits로 내라. target은 현재 초안에서 정확히 한 번 나오는 원문 구간이고"
+    + "(한 번만 나오도록 앞뒤 문맥을 넣는다), text는 그 자리에 들어갈 새 문안이다. edits는 적힌 순서대로 적용된다. "
+    + "지적과 관계없는 부분은 바꾸지 마라. 본문에는 지적별 응답 설명만 짧게 써라.\n"
+    + "구조가 크게 바뀌어 edits로 나타내기 어려울 때만 full_rewrite를 true로 하고 본문에 수정된 초안 전체를 써라.\n"
+    + JSON_TAIL + REVISE_JSON;
 
   const validate = (body, data) => {
-    if (!body) throw new FormatError("본문(수정된 초안)이 비어 있습니다");
+    if (data.full_rewrite === true && !body) throw new FormatError("full_rewrite인데 본문(수정된 초안)이 비어 있습니다");
     const nw = structuredClone(st);
     const rs = data.responses;
     if (!Array.isArray(rs)) throw new FormatError("'responses' 목록이 필요합니다");
@@ -573,8 +594,9 @@ async function stepRevise(st, d) {
     });
     const missing = opens.filter((pid) => !seen.has(pid));
     if (missing.length) throw new FormatError(`응답하지 않은 지적: ${missing.join(", ")}`);
+    const draft = data.full_rewrite === true ? body : applyEdits(st.draft, data.edits);
     nw.prev_draft = st.draft;   // 다음 검토에서 바뀐 절을 알려 주기 위해
-    nw.draft = body;
+    nw.draft = draft;
     nw.draft_version += 1;
     nw.pending_step = "review";
     return nw;
@@ -701,18 +723,24 @@ function fakeConsensus(st, tag, who, attempt) {
     if (sc === "badapprove" && rnd === 1 && attempt === 1) approve = true;
     return `검토 의견\n\n\`\`\`json\n${JSON.stringify({ points: out, approve })}\n\`\`\``;
   }
-  const rs = [];
+  const rs = [], v = st.draft_version;
   Object.entries(pts).filter(([, p]) => p.status === "open").forEach(([pid], i) => {
     if (sc === "stall" || (sc !== "maxround" && i % 2 === 1)) rs.push({ id: pid, reply: "rebut", grounds: "가짜 반박" });
     else if (sc === "maxround") rs.push({ id: pid, reply: "accept", applied: "modified", reason: "가짜 사유" });
     else rs.push({ id: pid, reply: "accept", applied: "as_is" });
   });
-  return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v${st.draft_version + 1}\n\n`
-    + `\`\`\`json\n${JSON.stringify({ responses: rs })}\n\`\`\``;
+  // maxround는 전체 다시 쓰기, 나머지는 패치. patch_miss는 2라운드 첫 시도에 초안에 없는 target을 낸다
+  if (sc === "maxround") {
+    return `## 판단 기준\n- 비용\n\n(${NAMES[who]}) 통합 초안 v${v + 1}\n\n`
+      + `\`\`\`json\n${JSON.stringify({ responses: rs, full_rewrite: true })}\n\`\`\``;
+  }
+  const target = sc === "patch_miss" && rnd === 2 && attempt === 1 ? "초안에 없는 문구" : `통합 초안 v${v}`;
+  const edits = [{ target, text: `통합 초안 v${v + 1}` }];
+  return `지적별 응답 설명\n\n\`\`\`json\n${JSON.stringify({ responses: rs, edits })}\n\`\`\``;
 }
 
-// wording·converge는 판정 모드 전용, badapprove·late_point는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
-const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge", "late_point"];
+// wording·converge는 판정 모드 전용, badapprove·late_point·patch_miss는 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
+const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge", "late_point", "patch_miss"];
 
 function nextAuthor() {
   // 토의마다 첫 작성자를 번갈아 정한다 (직전 자동 합의 토의의 반대쪽)
