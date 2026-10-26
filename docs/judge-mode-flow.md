@@ -14,7 +14,7 @@
 |---|---|
 | 사용자 | 시작 승인, 논의 범위 승인, 기준 승인, 라운드 판정, 최종 확정 |
 | 진행자 (토의를 호출한 Claude Code 세션) | 주제·배경·요구사항 정리, 쟁점표 작성·갱신, 사용자의 말을 명령으로 옮김, 쟁점표와 원문 링크를 보여 줌, 수렴 판단, 최종안 조립 |
-| 스크립트 (debate.py) | AI 호출, 상태 저장, 응답 파싱, 절차 규칙 적용, 로그 기록 |
+| 스크립트 (discussion.py) | AI 호출, 상태 저장, 응답 파싱, 절차 규칙 적용, 로그 기록 |
 | Claude / Codex (새 세션) | 토의 당사자. 자기 입장만 직접 쓰고, 반박하고, 쟁점별 입장을 표시함 |
 
 진행자 원칙:
@@ -130,7 +130,7 @@
   "topic": "...", "background": "...",
   "requirements": [{"id": "Q1", "text": "예산 월 10만 원 이하", "round": 0}],
   "context_files": [], "workdir": null, "max_rounds": 5,
-  "phase": "debate", "round": 3,
+  "phase": "discussion", "round": 3,
   "items": {
     "I1": {
       "kind": "issue",
@@ -155,7 +155,7 @@
 }
 ```
 
-- `phase`: `draft` → `r2` → `baseline` → `debate` → `final` → `done`
+- `phase`: `draft` → `r2` → `baseline` → `discussion` → `final` → `done`
 - `kind`: `issue`(쟁점) / `agree_candidate`(합의 후보) / `one_sided`(한쪽만 다룬 항목, `owner`에 꺼낸 쪽)
 - `resolution`: `{"by": "agreement | withdraw | user", "text": "...", "round": n}`
 
@@ -262,7 +262,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 |---|---|---|
 | `start --spec spec.json` | 진행자 (사용자 승인 후) | 토의 폴더 생성, R1 실행. spec: 주제·배경·요구사항·참조 파일·최대 라운드 |
 | `edit <id> --file ops.json` | 진행자 | 쟁점표 작성·수정 |
-| `next <id>` | 진행자 (사용자 승인 후) | 다음 AI 단계 실행 (draft → R2, baseline → R3, debate → 다음 라운드) |
+| `next <id>` | 진행자 (사용자 승인 후) | 다음 AI 단계 실행 (draft → R2, baseline → R3, discussion → 다음 라운드) |
 | `judge <id> <항목> claude\|codex\|--text "..."` | 사용자 판정 | 쟁점 판정 후 닫음 |
 | `judge-all <id> claude\|codex` | 사용자 판정 | 미해결 쟁점 전체를 한쪽으로 |
 | `note <id> <항목\|all> "..."` | 사용자 의견 | 다음 라운드에 붙일 의견 (원문 그대로) |
@@ -274,12 +274,12 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 | `final <id> --file draft.md` | 진행자 | 최종안 등록, 두 AI 검토 실행 |
 | `final-draft <id>` | 진행자 | 최종안 뼈대(`final_draft.md`) 생성. 합의 / 사용자 판정 / 미해결 / 미확인 / 제외 절, 출처 ID·단서 포함 |
 | `final-fix <id> --file draft.md` | 진행자 | 표현 지적만 반영 (재검토 없음). 조립 지적이 있으면 거부 |
-| `reopen <id> <항목>` | 사용자 승인 | 실질 지적 쟁점을 다시 열고 debate 단계로 |
+| `reopen <id> <항목>` | 사용자 승인 | 실질 지적 쟁점을 다시 열고 discussion 단계로 |
 | `confirm <id>` / `end <id>` | 사용자 | 최종 확정 / 판정 없이 종료 |
 | `show <id>` | 진행자 | 현재 쟁점표와 쓸 수 있는 명령 출력 (세션 재개용) |
 
 - `<id>`에는 토의 이름, `last`(가장 최근 토의), 이름 앞부분(하나만 맞을 때)을 쓸 수 있다.
-- 모든 명령은 끝에 현재 쟁점표와 지금 phase에서 쓸 수 있는 명령을 출력한다. AI 단계 뒤에는 처리 결과와 원문 경로(`debates/<id>/raw/...`)도 출력한다.
+- 모든 명령은 끝에 현재 쟁점표와 지금 phase에서 쓸 수 있는 명령을 출력한다. AI 단계 뒤에는 처리 결과와 원문 경로(`discussions/<id>/raw/...`)도 출력한다.
 - 지금 phase에서 쓸 수 없는 명령은 거부한다.
 - AI를 부르는 명령(`start`, `next`, `final`)은 스킬에서 백그라운드로 실행한다. 한 명령은 한 단계만 처리하므로 AI 호출은 동시 2번(재시도 포함)이다.
 
@@ -302,7 +302,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 
 ## 구현 순서
 
-1. debate.py 수정 — 완료
+1. discussion.py 수정 — 완료
 2. dry-run 검증 — 완료
 3. 스킬 작성 — 완료 (2026-10-26). 이름을 `/toui`로 바꿔 개인 스킬 `~/.claude/skills/toui/SKILL.md`로 만들었다. 스크립트는 이 폴더에 두고 전체 경로로 부른다.
 4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
@@ -338,5 +338,6 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 - 토의 이름을 `YYYYMMDD-HHMM_슬러그(10자)`로 줄이고(spec의 `name`으로 지정 가능), `last`와 앞부분 일치를 추가했다.
 - 빠진 쟁점 제안은 그대로 둔다(거절 불가). 이번에 I3~I5를 뺀 것은 사용자의 임의 판단이었다.
 - 이름을 '토론'에서 '토의'로 바꿨다. 실제로 돌려 보니 두 AI가 이기고 지는 것이 아니라, 어디까지 같은 생각인지 좁혀 가는 방식으로 움직였다. 바꾼 범위는 사용자에게 보이는 문구, 문서, AI 프롬프트다. 파일·폴더·명령·JSON 필드 이름(`debate.py`, `debates/`, `rebuttal` 등)은 그대로 둔다.
+  - 나중에(2026-10-26) 파일·폴더·코드 이름과 phase 값도 `debate`에서 `discussion`으로 바꿨다(`discussion.py`, `discussions/`). `rebuttal` 등 다른 필드 이름은 그대로다.
   - 프롬프트: "토론한다"를 "함께 토의해 결론을 찾는다"로 바꿨다. 반박(`rebuttal`)은 "상대 입장에 남은 차이나 문제"로 바꾸고 선택으로 했다.
   - 비워 둔 지적은 해소된 것으로 보아 `last_rebuttal`에서 지운다. 양측이 모두 비우면 "남은 차이 없음" 수렴 신호가 붙는다.

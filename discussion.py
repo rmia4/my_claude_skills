@@ -17,9 +17,9 @@ spec.json 예 (mode: "consensus" 또는 "judge")
    "max_rounds": 5}
 
 사용 예
-  python debate.py start --spec spec.json
-  python debate.py next 20261026-103000_주제
-  python debate.py start --spec spec.json --dry-run --scenario stall   # CLI 없이 규칙 시험
+  python discussion.py start --spec spec.json
+  python discussion.py next 20261026-103000_주제
+  python discussion.py start --spec spec.json --dry-run --scenario stall   # CLI 없이 규칙 시험
 """
 import argparse
 import copy
@@ -90,7 +90,7 @@ def ask(who: str, prompt: str, fake=None) -> str:
 
 
 # ── 공통: 상태·파싱·재시도 (docs/common.md) ──────────────────────────
-DEBATES = Path("debates")   # 호출한 프로젝트 폴더에 쌓는다
+DISCUSSIONS = Path("discussions")   # 호출한 프로젝트 폴더에 쌓는다
 
 
 class FormatError(Exception):
@@ -134,12 +134,12 @@ def bullets(items):
     return "".join(f"- {x}\n" for x in items)
 
 
-def debate_dir(id_):
+def discussion_dir(id_):
     """경로, 토의 이름, last(가장 최근 토의), 이름 앞부분(하나만 맞을 때)을 받는다"""
-    for d in (Path(id_), DEBATES / id_):
+    for d in (Path(id_), DISCUSSIONS / id_):
         if (d / "state.json").exists():
             return d
-    found = sorted(p for p in DEBATES.glob("*") if (p / "state.json").exists())
+    found = sorted(p for p in DISCUSSIONS.glob("*") if (p / "state.json").exists())
     if id_ == "last" and found:
         return found[-1]   # 이름이 시작 시각으로 시작하므로 이름순 마지막이 가장 최근이다
     hits = [p for p in found if p.name.startswith(id_)]
@@ -531,7 +531,7 @@ def print_status(d, st):
         print("\n" + report(st))
         print(f"기록: {d / 'log.md'}")
     else:
-        print(f"다음: python debate.py next {d.name}")
+        print(f"다음: python discussion.py next {d.name}")
 
 
 def run_pending(d, st):
@@ -601,7 +601,7 @@ SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove"
 def next_author():
     """토의마다 첫 작성자를 번갈아 정한다 (직전 자동 합의 토의의 반대쪽)"""
     last = None
-    for f in sorted(DEBATES.glob("*/state.json")):
+    for f in sorted(DISCUSSIONS.glob("*/state.json")):
         try:
             s = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -613,7 +613,7 @@ def next_author():
 
 # ── 사용자 판정 모드 (docs/judge-mode-flow.md) ────────────────────────
 J_STEP_KO = {"r1": "R1 독립 답변", "r2": "R2 쟁점표 확인", "round": "쟁점 공방", "final_review": "최종안 검토"}
-PHASE_KO = {"draft": "쟁점표 초안", "baseline": "쟁점표 확정", "debate": "쟁점 공방",
+PHASE_KO = {"draft": "쟁점표 초안", "baseline": "쟁점표 확정", "discussion": "쟁점 공방",
             "final": "최종안", "done": "종료"}
 KIND_KO = {"issue": "쟁점", "agree_candidate": "합의 후보", "one_sided": "한쪽 항목"}
 ITEM_KO = {"open": "논의 중", "agreed": "합의", "user_decided": "사용자 판정", "stall_candidate": "교착 후보",
@@ -624,7 +624,7 @@ CHECKS = ("agreements", "user_decisions", "unresolved_listed", "no_new_conclusio
 PHASE_CMDS = {
     "draft": ["edit", "next", "req", "end"],
     "baseline": ["edit", "pick-wording", "next", "note", "req", "exclude", "final", "end"],
-    "debate": ["next", "judge", "judge-all", "note", "req", "defer", "exclude", "proposal", "reopen", "edit",
+    "discussion": ["next", "judge", "judge-all", "note", "req", "defer", "exclude", "proposal", "reopen", "edit",
                "final-draft", "final", "end"],
     "final": ["final-draft", "final", "final-fix", "judge", "reopen", "edit", "confirm", "end"],
     "done": [],
@@ -1173,7 +1173,7 @@ def jstep_round(st, d):
         st["phase"], st["pending_step"] = "final", None
         log += f"\n> 최대 라운드 도달: {', '.join(moved) or '남은 항목 없음'} 보류 → 최종안 단계\n"
     else:
-        st["phase"], st["pending_step"] = "debate", "round"
+        st["phase"], st["pending_step"] = "discussion", "round"
     append_log(d, log)
     st["last_summary"] = log.split(f"### 라운드 {rnd} 처리\n", 1)[1].strip().splitlines()
     return st
@@ -1269,7 +1269,7 @@ def print_judge(d, st):
     print(f"토의: {d.name}  (사용자 판정 · 라운드 {st['round']}/{st['max_rounds']} · {PHASE_KO[st['phase']]} 단계)")
     if st["status"] == "halted":
         print(f"상태: 중단 · {J_STEP_KO[st['pending_step']]} 단계 · 사유: {st['halt_reason']}")
-        print(f"재개: python debate.py next {d.name}")
+        print(f"재개: python discussion.py next {d.name}")
     elif st["status"] == "done":
         print(f"상태: 종료 · {st['result']}")
     elif st["pending_step"]:
@@ -1317,7 +1317,7 @@ def print_judge(d, st):
     for c in cmds:
         if c == "next" and blockers:
             continue
-        print("  python debate.py " + CMD_USAGE[c].format(id=d.name))
+        print("  python discussion.py " + CMD_USAGE[c].format(id=d.name))
 
 
 def fake_judge(st, tag, who, attempt):
@@ -1388,7 +1388,7 @@ def fake_judge(st, tag, who, attempt):
 
 # ── 판정 모드: 진행자·사용자 명령 ─────────────────────────────────────
 def open_judge(a):
-    d = debate_dir(a.id)
+    d = discussion_dir(a.id)
     st = load(d)
     if st.get("mode") != "judge":
         sys.exit("사용자 판정 모드 토의가 아닙니다")
@@ -1448,7 +1448,7 @@ def edit_table(st, data):
 
 def edit_ops(st, ops):
     allowed = {"baseline": ("revise", "add"),
-               "debate": ("merge_proposals", "flag_missing", "converge"),
+               "discussion": ("merge_proposals", "flag_missing", "converge"),
                "final": ("converge",)}[st["phase"]]   # 마지막 라운드의 수렴 신호는 보류된 뒤에 판단한다
     for i, op in enumerate(ops):
         where = f"ops[{i}]"
@@ -1630,14 +1630,14 @@ def cmd_proposal(a):
 
 def cmd_reopen(a):
     d, st = open_judge(a)
-    if st["phase"] == "debate":
+    if st["phase"] == "discussion":
         it = get_item(st, a.item, ("stall_candidate", "deferred"))
     else:
         it = get_item(st, a.item, [s for s in ITEM_KO if s not in ("open", "wording_conflict")])
     it.update(kind="issue", status="open", stall_reason=None, resolution=None, reason=None,
               keep_streak={w: 0 for w in NAMES}, missing={w: 0 for w in NAMES})
     reset_final(st)
-    st["phase"], st["pending_step"] = "debate", "round"
+    st["phase"], st["pending_step"] = "discussion", "round"
     if st["round"] >= st["max_rounds"]:
         print("최대 라운드를 넘겨 한 라운드 더 진행합니다. 그 라운드가 끝나면 남은 쟁점은 다시 보류됩니다.\n")
     commit(d, st, f"\n## 쟁점 재개 (R{st['round']} 뒤)\n\n- {a.item}\n")
@@ -1755,7 +1755,7 @@ def cmd_start(a):
     author = next_author() if mode == "consensus" else None
     # 토의 이름은 짧게: spec의 name(없으면 주제 앞 10자)
     slug = re.sub(r"[^\w가-힣]+", "_", (spec.get("name") or topic).strip())[:10].strip("_")
-    d = DEBATES / f"{datetime.now():%Y%m%d-%H%M}_{slug}"
+    d = DISCUSSIONS / f"{datetime.now():%Y%m%d-%H%M}_{slug}"
     n = 2
     while d.exists():   # 같은 분에 시작한 토의와 이름이 겹치면 번호를 붙인다
         d = d.with_name(f"{d.name.rsplit('~', 1)[0]}~{n}")
@@ -1798,7 +1798,7 @@ def cmd_start(a):
 
 
 def cmd_next(a):
-    d = debate_dir(a.id)
+    d = discussion_dir(a.id)
     st = load(d)
     show_fn = MODES[st["mode"]][2]
     if st["status"] == "done":
@@ -1817,7 +1817,7 @@ def cmd_next(a):
 
 
 def cmd_show(a):
-    d = debate_dir(a.id)
+    d = discussion_dir(a.id)
     st = load(d)
     MODES[st["mode"]][2](d, st)
 
