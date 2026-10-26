@@ -34,6 +34,7 @@ const CODEX_CMD = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-
 const TIMEOUT_SEC = 600;
 let WORKDIR = null;   // --workdir 지정 시 두 AI가 이 폴더의 파일을 읽기 전용으로 참조
 const RETRIES = 2;
+const BACKOFF_SEC = [10, 30];   // 재시도마다 앞서 기다리는 초 (RETRIES만큼, 모델 용량 부족 같은 일시 오류 대비). dry-run에서는 기다리지 않는다
 
 const NAMES = { claude: "Claude", codex: "Codex" };
 const OTHER = { claude: "codex", codex: "claude" };
@@ -118,10 +119,19 @@ function run(name, args, input, cwd) {
   });
 }
 
+function callError(r) {
+  // 메시지는 짧게: ERROR로 시작하는 줄(중복 제거), 없으면 마지막 3줄. 전체 stderr는 raw에 남기도록 붙여 둔다
+  const lines = r.stderr.split("\n").map((l) => l.trim()).filter(Boolean);
+  const errs = [...new Set(lines.filter((l) => l.startsWith("ERROR")))];
+  const e = new Error((errs.length ? errs : lines.slice(-3)).join(" / ") || `exit ${r.code}`);
+  e.stderr = r.stderr;
+  return e;
+}
+
 async function callClaude(prompt) {
   const args = [...CLAUDE_CMD.slice(1), ...(WORKDIR ? ["--allowedTools", "Read,Glob,Grep"] : [])];
   const r = await run(CLAUDE_CMD[0], args, prompt, WORKDIR);
-  if (r.code !== 0) throw new Error(r.stderr.trim() || `exit ${r.code}`);
+  if (r.code !== 0) throw callError(r);
   return r.stdout.trim();
 }
 
@@ -132,7 +142,7 @@ async function callCodex(prompt) {
   try {
     const args = [...CODEX_CMD.slice(1), ...(WORKDIR ? ["--cd", WORKDIR] : []), "--output-last-message", out, "-"];
     const r = await run(CODEX_CMD[0], args, prompt, null);
-    if (r.code !== 0) throw new Error(r.stderr.trim().slice(-2000) || `exit ${r.code}`);
+    if (r.code !== 0) throw callError(r);
     return readText(out).trim();
   } finally {
     fs.rmSync(out, { force: true });
@@ -144,6 +154,7 @@ async function ask(who, prompt, fake = null) {
   const fn = fake || (who === "claude" ? callClaude : callCodex);
   let last = null;
   for (let i = 0; i <= RETRIES; i++) {
+    if (i && !fake) await new Promise((ok) => setTimeout(ok, BACKOFF_SEC[i - 1] * 1000));
     try {
       const out = await fn(prompt);
       if (!out.trim()) throw new Error("빈 응답");
@@ -153,7 +164,9 @@ async function ask(who, prompt, fake = null) {
       process.stderr.write(`  ! ${NAMES[who]} 호출 실패, 재시도: ${e.message}\n`);
     }
   }
-  throw new Error(`${NAMES[who]} 호출이 계속 실패했습니다: ${last.message}`);
+  const e = new Error(`${NAMES[who]} 호출이 계속 실패했습니다: ${last.message}`);
+  e.stderr = last.stderr;
+  throw e;
 }
 
 async function both(calls) {
@@ -245,6 +258,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     try {
       text = await ask(who, p, fake);
     } catch (e) {
+      if (e.stderr) writeText(path.join(d, "raw", `${tag}_${who}.stderr.txt`), e.stderr);
       throw new Halt(e.message);
     }
     const f = path.join(d, "raw", `${tag}_${who}` + (attempt > 1 ? `.try${attempt}` : "") + ".md");
