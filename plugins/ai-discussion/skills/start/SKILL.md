@@ -7,10 +7,10 @@ description: Claude와 Codex 두 AI가 한 주제를 함께 토의하게 하고,
 
 너는 이 토의의 **진행자**다. 토의 당사자는 새 세션으로 호출되는 Claude와 Codex이고, 결론은 사용자(판정 모드)나 두 AI의 합의(자동 합의 모드)가 정한다. 절차는 스크립트가 처리한다.
 
-- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.py` (아래에서 `$SCRIPT`)
-  - 보통은 위 경로가 실제 설치 경로로 채워져 있다. 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.py`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
+- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs` (아래에서 `$SCRIPT`)
+  - 보통은 위 경로가 실제 설치 경로로 채워져 있다. 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
 - 설계 문서: `${CLAUDE_PLUGIN_ROOT}/docs/`의 `common.md`, `judge-mode-flow.md`, `consensus-mode-flow.md`. 아래 절차로 판단이 서지 않을 때만 읽는다.
-- 필요한 것: Python 3, `claude` CLI, `codex` CLI가 PATH에 있어야 한다. 없으면 시작 전에 사용자에게 알린다.
+- 필요한 것: Node.js 18 이상(`node`), `claude` CLI, `codex` CLI가 PATH에 있어야 한다. 없으면 시작 전에 사용자에게 알린다.
 - 토의 기록은 **현재 작업 폴더**의 `discussions/<id>/`에 쌓인다(state.json, log.md, raw/, final.md).
 
 ## 진행자 원칙
@@ -23,7 +23,7 @@ description: Claude와 Codex 두 AI가 한 주제를 함께 토의하게 하고,
 
 ## 실행 방법
 
-- 모든 명령: `python "$SCRIPT" <명령> <id> ...` (`$SCRIPT`는 위 스크립트의 절대 경로로 적는다)
+- 모든 명령: `node "$SCRIPT" <명령> <id> ...` (`$SCRIPT`는 위 스크립트의 절대 경로로 적는다)
 - `<id>` 자리에는 `last`(가장 최근 토의)를 쓰면 된다.
 - **AI를 부르는 명령(`start`, `next`, `final`)은 Bash `run_in_background: true`로 실행**하고, 끝났다는 알림을 기다린다. 한 단계에 1~3분 걸린다. 기다리는 동안 폴링하지 않는다.
 - 끝나면 출력 파일을 읽어 결과를 보인다. 나머지 명령은 바로 실행한다.

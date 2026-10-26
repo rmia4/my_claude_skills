@@ -31,7 +31,7 @@ claude plugin install ai-discussion@my-claude-skills
 
 ## 필요한 것
 
-- Python 3 (`python` 명령)
+- Node.js 18 이상 (`node` 명령). Codex CLI를 npm으로 설치했다면 이미 있습니다.
 - `claude` CLI와 `codex` CLI (PATH에 있고 로그인된 상태)
 
 ## 사용 조건과 제약
@@ -62,7 +62,7 @@ claude plugin install ai-discussion@my-claude-skills
 - **외부 전송과 사용량:** 주제, 배경, `context` 파일 내용, `workdir`에서 읽은 파일은 Anthropic과 OpenAI로 전송됩니다. 사용량도 각 CLI에 로그인한 계정에서 나갑니다. 민감한 자료는 넣지 마세요.
 - **시간:** AI 단계 하나에 보통 1~3분 걸립니다. 호출 하나의 제한 시간은 10분이고, 실패하면 2번까지 다시 시도합니다. 그래도 실패하면 토의가 중단 상태가 되고, `next`로 같은 단계를 다시 실행할 수 있습니다.
 - **CLI 버전:** `claude -p`와 `codex exec`의 옵션에 맞춰 만들었습니다(확인한 버전: claude 2.1.300, codex-cli 0.163.0). CLI 옵션이 바뀌면 호출이 실패할 수 있습니다.
-- **운영체제:** Windows에서만 확인했습니다. macOS·Linux에서 `python` 명령이 없고 `python3`만 있다면 동작하지 않을 수 있습니다.
+- **운영체제:** Windows에서만 확인했습니다. macOS·Linux에서는 아직 돌려 보지 않았습니다.
 
 ## 구조
 
@@ -71,8 +71,8 @@ claude plugin install ai-discussion@my-claude-skills
 plugins/ai-discussion/
   .claude-plugin/plugin.json         플러그인 정보
   skills/start/SKILL.md              진행 절차 (스킬)
-  scripts/discussion.py              AI 호출·상태 저장·규칙 적용 스크립트
+  scripts/discussion.mjs             AI 호출·상태 저장·규칙 적용 스크립트
   docs/                              설계 문서
 ```
 
-스킬은 `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.py`로 스크립트를 부르므로, 설치 위치와 관계없이 동작합니다.
+스킬은 `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs`로 스크립트를 부르므로, 설치 위치와 관계없이 동작합니다.

@@ -14,7 +14,7 @@
 |---|---|
 | 사용자 | 시작 승인, 논의 범위 승인, 기준 승인, 라운드 판정, 최종 확정 |
 | 진행자 (토의를 호출한 Claude Code 세션) | 주제·배경·요구사항 정리, 쟁점표 작성·갱신, 사용자의 말을 명령으로 옮김, 쟁점표와 원문 링크를 보여 줌, 수렴 판단, 최종안 조립 |
-| 스크립트 (discussion.py) | AI 호출, 상태 저장, 응답 파싱, 절차 규칙 적용, 로그 기록 |
+| 스크립트 (discussion.mjs) | AI 호출, 상태 저장, 응답 파싱, 절차 규칙 적용, 로그 기록 |
 | Claude / Codex (새 세션) | 토의 당사자. 자기 입장만 직접 쓰고, 반박하고, 쟁점별 입장을 표시함 |
 
 진행자 원칙:
@@ -302,9 +302,9 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 
 ## 구현 순서
 
-1. discussion.py 수정 — 완료
+1. 스크립트 작성 — 완료. 처음에는 Python(`discussion.py`)으로 썼고, 2026-10-26 Node.js(`discussion.mjs`)로 옮겼다(아래 "Node.js로 옮김")
 2. dry-run 검증 — 완료
-3. 스킬 작성 — 완료 (2026-10-26). `ai-discussion` 플러그인의 `start` 스킬(`skills/start/SKILL.md`, `/ai-discussion:start`)로 만들었다. 스크립트는 `scripts/discussion.py`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다.
+3. 스킬 작성 — 완료 (2026-10-26). `ai-discussion` 플러그인의 `start` 스킬(`skills/start/SKILL.md`, `/ai-discussion:start`)로 만들었다. 스크립트는 `scripts/discussion.mjs`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다.
 4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
 
 ## 구현하며 정한 것 (2026-10-26)
@@ -341,3 +341,13 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
   - 나중에(2026-10-26) 파일·폴더·코드 이름과 phase 값도 `debate`에서 `discussion`으로 바꿨다(`discussion.py`, `discussions/`). `rebuttal` 등 다른 필드 이름은 그대로다.
   - 프롬프트: "토론한다"를 "함께 토의해 결론을 찾는다"로 바꿨다. 반박(`rebuttal`)은 "상대 입장에 남은 차이나 문제"로 바꾸고 선택으로 했다.
   - 비워 둔 지적은 해소된 것으로 보아 `last_rebuttal`에서 지운다. 양측이 모두 비우면 "남은 차이 없음" 수렴 신호가 붙는다.
+
+## Node.js로 옮김 (2026-10-26)
+
+Python 없이 실행되도록 스크립트를 `discussion.py`에서 `discussion.mjs`(Node.js 18 이상, 외부 패키지 없음)로 옮겼다. Codex CLI를 npm으로 설치했다면 Node.js가 이미 있으므로 새로 설치할 것이 없다.
+
+- 명령, 인자, spec, `state.json` 형식, 출력 문구는 그대로다. 실행 안내만 `node discussion.mjs`로 바뀌었다. Python으로 만든 토의 기록을 그대로 이어 쓸 수 있다.
+- 줄바꿈은 Python 텍스트 모드와 같게 처리한다. 읽을 때는 `\n`으로 바꾸고, 쓸 때는 운영체제 줄바꿈으로 쓴다.
+- Windows에서 npm으로 설치한 CLI(`codex.cmd` 등)는 cmd.exe를 거쳐 실행하고, 인자는 따옴표로 감싼다.
+- 시간 제한은 직접 타이머로 건다. `spawn`의 `timeout` 옵션은 CLI를 찾지 못했을 때 타이머가 남아 프로세스가 10분 동안 끝나지 않았다.
+- 검증: dry-run 시나리오(자동 합의 7개, 판정 8개)로 명령 427개를 Python판과 Node판에서 똑같이 돌려 비교했다. 결과 파일 227개는 시각을 빼고 바이트까지 같았다. 출력은 JSON 파서 오류 문구와 명령줄 인자 오류 문구만 다르다. 실제 CLI로는 R1 한 단계(작업 폴더 경로에 공백 포함)를 확인했다.
