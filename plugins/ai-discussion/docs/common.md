@@ -30,6 +30,13 @@ discussions/20261026-1030_주제/
   - `pending_step`: 다음에 실행할 단계
   - `halt_reason`: 중단 사유 (`halted`일 때)
 
+## 모드 확인
+
+- 새 spec에는 `mode`가 필수다. 없으면 `start`가 spec 예시와 함께 거부한다. 0.2.x에서 mode 없이 저장된 state는 `consensus`로 읽는다.
+- 토의를 여는 모든 명령은 `--mode judge|consensus`를 받는다. 주면 `last`나 지정 id를 실제 토의로 찾은 뒤 state의 mode와 비교하고, 다르면 거부하며 맞는 스킬(`/ai-discussion:<mode>`)을 알려 준다. 모드 스킬은 항상 붙이고, `start` 스킬은 재개할 모드를 알아낼 때만 빼고 `show`를 부른다.
+- spec의 `via`(예: `"start"`)는 state에 그대로 남긴다. `start` 스킬의 사용 비율을 보고 제거 여부를 판단하는 데 쓴다.
+- `start`는 `claude`·`codex` CLI가 PATH에 없으면 시작하지 않는다(dry-run 제외).
+
 ## 응답 파싱
 
 - AI는 본문을 자유롭게 쓰고 끝에 ```` ```json ```` 블록을 붙인다. JSON이 필요 없는 단계도 있으며, 어느 단계인지는 각 모드 문서에 정한다.

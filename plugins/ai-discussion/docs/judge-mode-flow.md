@@ -305,6 +305,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 1. 스크립트 작성 — 완료 (`scripts/discussion.mjs`, 아래 "실행 환경")
 2. dry-run 검증 — 완료
 3. 스킬 작성 — 완료 (2026-10-26). `ai-discussion` 플러그인의 `start` 스킬(`skills/start/SKILL.md`, `/ai-discussion:start`)로 만들었다. 스크립트는 `scripts/discussion.mjs`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다.
+4. 스킬 분리 — 완료 (2026-10-26, 0.3.0). 사용자 판정은 `judge` 스킬(`/ai-discussion:judge`), 자동 합의는 `consensus` 스킬로 나누고, `start`는 모드를 정해 두 스킬로 넘기는 입구로 남겼다. 공용 규칙은 [common.md](common.md) "모드 확인"을 따른다.
 4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
 
 ## 구현하며 정한 것 (2026-10-26)

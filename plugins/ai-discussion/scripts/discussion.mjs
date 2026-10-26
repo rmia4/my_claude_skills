@@ -10,8 +10,9 @@
   사용자 판정 모드 전용: edit, judge, judge-all, note, req, defer, exclude, pick-wording,
                         proposal, reopen, final-draft, final, final-fix, confirm, end (-h로 사용법 확인)
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
+  --mode judge|consensus를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
 
-spec.json 예 (mode: "consensus" 또는 "judge")
+spec.json 예 (mode는 필수: "consensus" 또는 "judge". via는 선택: 호출한 진입점, 예 "start")
   {"mode": "consensus", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5}
@@ -217,7 +218,11 @@ function discussionDir(id) {
   die(`토의를 찾을 수 없습니다: ${id}`);
 }
 
-const load = (d) => JSON.parse(readText(path.join(d, "state.json")));
+function load(d) {
+  const st = JSON.parse(readText(path.join(d, "state.json")));
+  st.mode ??= "consensus";   // 0.2.x에서 mode 없이 저장된 state는 자동 합의로 읽는다
+  return st;
+}
 
 function save(d, st) {
   const tmp = path.join(d, "state.json.tmp");
@@ -589,7 +594,7 @@ function printStatus(d, st) {
     print("\n" + report(st));
     print(`기록: ${path.join(d, "log.md")}`);
   } else {
-    print(`다음: node discussion.mjs next ${path.basename(d)}`);
+    print(`다음: node discussion.mjs next ${path.basename(d)} --mode consensus`);
   }
 }
 
@@ -1338,7 +1343,7 @@ function printJudge(d, st) {
   print(`토의: ${name}  (사용자 판정 · 라운드 ${st.round}/${st.max_rounds} · ${PHASE_KO[st.phase]} 단계)`);
   if (st.status === "halted") {
     print(`상태: 중단 · ${J_STEP_KO[st.pending_step]} 단계 · 사유: ${st.halt_reason}`);
-    print(`재개: node discussion.mjs next ${name}`);
+    print(`재개: node discussion.mjs next ${name} --mode judge`);
   } else if (st.status === "done") {
     print(`상태: 종료 · ${st.result}`);
   } else if (st.pending_step) {
@@ -1386,7 +1391,7 @@ function printJudge(d, st) {
   print("\n쓸 수 있는 명령:");
   for (const c of cmds) {
     if (c === "next" && blockers.length) continue;
-    print("  node discussion.mjs " + CMD_USAGE[c].replaceAll("{id}", name));
+    print("  node discussion.mjs " + CMD_USAGE[c].replaceAll("{id}", `${name} --mode judge`));
   }
 }
 
@@ -1805,15 +1810,34 @@ function cmdEnd(a) {
 }
 
 const MODES = { consensus: [STEPS, STEP_KO, printStatus], judge: [J_STEPS, J_STEP_KO, printJudge] };
+const MODE_KO = { consensus: "자동 합의", judge: "사용자 판정" };
+const SPEC_EXAMPLE = `spec 예:
+  {"mode": "judge", "name": "짧은이름", "topic": "...", "background": "...",
+   "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 5}`;
+
+function checkMode(a) {
+  // 모드 스킬이 다른 모드의 토의를 이어 가지 않도록 막는다 (last와 지정 id 모두 실제 토의를 찾은 뒤 비교)
+  const d = discussionDir(a.id);
+  const st = load(d);
+  if (st.mode !== a.mode) {
+    die(`${path.basename(d)}는 ${MODE_KO[st.mode]} 토의입니다. /ai-discussion:${st.mode} 스킬로 이어 가세요`
+      + ` (어느 모드인지 모르면 /ai-discussion:start)`);
+  }
+}
 
 
 // ── 명령 ─────────────────────────────────────────────────────────────
 async function cmdStart(a) {
   const spec = JSON.parse(readText(a.spec));
-  const mode = spec.mode ?? "consensus";
-  if (!has(MODES, mode)) die(`mode는 ${Object.keys(MODES).join(" 또는 ")}여야 합니다`);
+  const mode = spec.mode;
+  if (!has(MODES, mode)) die(`spec의 mode는 ${Object.keys(MODES).join(" 또는 ")}여야 합니다\n${SPEC_EXAMPLE}`);
   const topic = (spec.topic || "").trim();
-  if (!topic) die("spec에 topic이 필요합니다");
+  if (!topic) die(`spec에 topic이 필요합니다\n${SPEC_EXAMPLE}`);
+  if (!a.dry_run) {
+    const missing = WHO.filter((w) => !which(w));
+    if (missing.length) die(`PATH에서 ${missing.join(", ")} CLI를 찾을 수 없습니다. 설치하고 로그인한 뒤 다시 실행하세요`);
+  }
+  const via = spec.via ?? null;
   const files = spec.context ?? [];
   const context = files.map((f) => `--- ${f} ---\n${readText(f)}`).join("\n\n");
   let workdir = spec.workdir ?? null;
@@ -1843,7 +1867,7 @@ async function cmdStart(a) {
   if (mode === "judge") {
     const reqs = spec.requirements ?? [];
     st = {
-      id: name, mode: "judge", topic, background: spec.background ?? "",
+      id: name, mode: "judge", via, topic, background: spec.background ?? "",
       requirements: reqs.map((t, i) => ({ id: `Q${i + 1}`, text: t, round: 0 })),
       context_files: files, context, workdir,
       max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 5))),   // R1, R2 포함
@@ -1858,7 +1882,7 @@ async function cmdStart(a) {
     appendLog(d, `# ${topic}\n\n- 모드: 사용자 판정\n- 시작: ${clock(now)}\n` + meta);
   } else {
     st = {
-      id: name, mode: "consensus", topic,
+      id: name, mode: "consensus", via, topic,
       background: spec.background ?? "", requirements: spec.requirements ?? [],
       context_files: files, context, workdir,
       max_rounds: Math.max(2, Math.trunc(Number(spec.max_rounds ?? 5))),
@@ -1934,6 +1958,10 @@ const COMMANDS = {
   confirm: { help: "최종 확정", fn: cmdConfirm, args: [ID] },
   end: { help: "판정 없이 종료", fn: cmdEnd, args: [ID] },
 };
+// 토의를 여는 모든 명령에 --mode를 둔다
+for (const c of Object.values(COMMANDS)) {
+  if (c.args.includes(ID)) c.opts = { ...c.opts, mode: { choices: Object.keys(MODES), help: "토의 mode가 다르면 거부" } };
+}
 
 function usage(cmd, c) {
   const pos = c.args.map((x) => (x.optional ? `[${x.name}]` : x.name));
@@ -2014,7 +2042,9 @@ function parseArgs(argv) {
 
 async function main() {
   const a = parseArgs(process.argv.slice(2));
-  if (a) await a.fn(a);
+  if (!a) return;
+  if (a.mode) checkMode(a);
+  await a.fn(a);
 }
 
 main().catch((e) => {

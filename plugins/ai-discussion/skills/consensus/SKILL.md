@@ -1,0 +1,36 @@
+---
+name: consensus
+description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의로 Claude와 Codex가 스스로 합의안을 만든다. 사용자는 시작만 승인하고 결과를 받는다. 사용자가 "/ai-discussion:consensus", "AI끼리 합의해서 결론 내", "알아서 정리해 와", "초안 쓰고 서로 검토", "내 개입 없이" 같은 말을 할 때 쓴다.
+---
+
+# /ai-discussion:consensus — Claude × Codex 자동 합의 토의
+
+너는 이 토의의 **진행자**다. 토의 당사자는 새 세션으로 호출되는 Claude와 Codex이고, 한쪽이 초안을 쓰고 다른 쪽이 검토하며 스스로 합의한다. 절차는 스크립트가 처리하고, 진행자는 판단하지 않는다.
+
+## 실행 전 체크리스트
+
+- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs` (아래에서 `$SCRIPT`)
+  - 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
+- 모든 명령: `node "$SCRIPT" <명령> <id> --mode consensus`. **`--mode consensus`는 항상 붙인다.** 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
+- `<id>`는 `last`(가장 최근 토의) 또는 사용자가 지정한 토의 이름을 쓴다.
+- **AI를 부르는 명령(`start`, `next`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(한 단계 1~3분). 기다리는 동안 폴링하지 않는다.
+- 명령 출력 끝의 "다음" 줄을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
+- spec 파일은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
+- **AI 본문은 채팅에 옮기지 않는다.** 원문은 `discussions/<id>/raw/...` 파일 링크로만 남긴다.
+- 중단·재개: 출력에 "상태: 중단"이 나오면 사유를 알리고, 호출 실패면 `next`로 같은 단계를 다시 실행한다. 상태가 헷갈리면 `show`로 다시 본다.
+- 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `consensus-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
+
+## 0. 준비 (사용자 승인 필요)
+
+1. 주제·배경·요구사항을 정리한다. 두 AI는 대화 맥락을 모르므로 이 내용이 전부다. `/ai-discussion:start`가 넘긴 입력(args)이 있으면 그대로 쓰고 빠진 것만 보완한다. 이미 받은 내용을 다시 묻지 않는다.
+2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
+3. 정리한 내용을 채팅 본문으로 보이고 시작 승인을 받는다. 첫 초안 작성자는 토의마다 번갈아 정해진다고 알린다.
+4. 승인되면 spec 파일을 쓰고 `start --spec <파일>`을 백그라운드로 실행한다.
+   - spec 필드: `mode`(항상 `"consensus"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5).
+   - start에서 넘어왔으면 `"via": "start"`를 넣는다.
+
+## 1. 진행
+
+- 이후에는 `next last`만 백그라운드로 되풀이한다. 진행자는 판단하지 않는다.
+- 단계마다 진행 상황(라운드, 지적 상태)을 한두 줄로 알린다. 원문은 raw 링크로만 남긴다.
+- 끝나면 결과 보고를 보인다. 최종 초안은 `discussions/<id>/final.md` 링크로 남긴다.
