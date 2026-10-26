@@ -1,6 +1,6 @@
 {
   "name": "ai-discussion",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 진행자로서 쟁점표를 관리하며 사용자가 판정하거나(사용자 판정 모드) 두 AI가 스스로 합의하게(자동 합의 모드) 진행한다. /ai-discussion:judge(사용자 판정)와 /ai-discussion:consensus(자동 합의)가 주 명령이고, /ai-discussion:start는 모드 미정 요청과 이전 명령 호환용 입구다.",
   "author": {
     "name": "rmia4"
