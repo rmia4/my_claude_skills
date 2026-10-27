@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "ai-discussion",
-      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다 (/ai-discussion:judge, /ai-discussion:consensus)",
+      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다 (/ai-discussion:manual, /ai-discussion:auto)",
       "source": {
         "source": "github",
         "repo": "rmia4/my_claude_skills",
