@@ -12,7 +12,8 @@
       "source": {
         "source": "github",
         "repo": "rmia4/my_claude_skills",
-        "ref": "ai_discussion"
+        "ref": "ai_discussion",
+        "sha": "93b38a4a6897003c38c8a667b1b3f0326a1a44e0"
       },
       "category": "productivity"
     }
