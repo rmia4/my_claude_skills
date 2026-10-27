@@ -1,6 +1,6 @@
-# my-claude-skills 마켓플레이스 (ai_discussion 브랜치)
+# ai-discussion 플러그인 (ai_discussion 브랜치)
 
-Claude Code 플러그인 마켓플레이스입니다.
+Claude Code 플러그인입니다. 이 브랜치의 루트가 플러그인 루트이고, 마켓플레이스 목록(`marketplace.json`)은 main 브랜치에 있습니다.
 
 ## 플러그인
 
@@ -15,14 +15,14 @@ Claude Code 플러그인 마켓플레이스입니다.
 Claude Code에서:
 
 ```
-/plugin marketplace add rmia4/my_claude_skills#ai_discussion
+/plugin marketplace add rmia4/my_claude_skills
 /plugin install ai-discussion@my-claude-skills
 ```
 
 터미널에서:
 
 ```bash
-claude plugin marketplace add rmia4/my_claude_skills#ai_discussion
+claude plugin marketplace add rmia4/my_claude_skills
 ```
 
 ```bash
@@ -69,14 +69,12 @@ claude plugin install ai-discussion@my-claude-skills
 ## 구조
 
 ```
-.claude-plugin/marketplace.json      마켓플레이스 목록
-plugins/ai-discussion/
-  .claude-plugin/plugin.json         플러그인 정보
-  skills/judge/SKILL.md              사용자 판정 토의 절차
-  skills/consensus/SKILL.md          자동 합의 토의 절차
-  skills/start/SKILL.md              모드를 정해 위 두 스킬로 넘기는 입구
-  scripts/discussion.mjs             AI 호출·상태 저장·규칙 적용 스크립트
-  docs/                              설계 문서
+.claude-plugin/plugin.json         플러그인 정보
+skills/judge/SKILL.md              사용자 판정 토의 절차
+skills/consensus/SKILL.md          자동 합의 토의 절차
+skills/start/SKILL.md              모드를 정해 위 두 스킬로 넘기는 입구
+scripts/discussion.mjs             AI 호출·상태 저장·규칙 적용 스크립트
+docs/                              설계 문서
 ```
 
 스킬은 `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs`로 스크립트를 부르므로, 설치 위치와 관계없이 동작합니다.
