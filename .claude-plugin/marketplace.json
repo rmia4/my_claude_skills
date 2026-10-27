@@ -11,10 +11,10 @@
       "version": "0.5.0",
       "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다 (/ai-discussion:manual, /ai-discussion:auto)",
       "source": {
-        "source": "github",
-        "repo": "rmia4/my_claude_skills",
+        "source": "url",
+        "url": "https://github.com/rmia4/my_claude_skills.git",
         "ref": "ai_discussion",
-        "sha": "93b38a4a6897003c38c8a667b1b3f0326a1a44e0"
+        "sha": "855a9cbb7ebbaa4c1c26854729dcbdac9dc5eb2c"
       },
       "category": "productivity"
     }

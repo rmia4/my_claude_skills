@@ -9,4 +9,6 @@
 3. 같은 항목의 `version`을 브랜치 `plugin.json`의 `version`과 같은 값으로 맞춘다. 플러그인 버전을 올렸는지도 같이 확인한다.
 4. main에 커밋하고 푸시한다.
 
+플러그인 항목의 `source`는 `github`가 아니라 `url`(`https://github.com/...git`)로 둔다. `github` 소스는 SSH로 클론하는데, 이 PC에는 GitHub SSH 설정이 없어 앱의 업데이트가 `Host key verification failed`로 실패했다(2026-10-27). 업데이트는 HTTPS로 대신 시도하지 않는다.
+
 **Why:** 항목이 `ref`(브랜치 이름)만 가리키면 브랜치에 새 커밋이 생겨도 마켓플레이스 파일이 바뀌지 않는다. 그러면 데스크톱 앱의 업데이트 버튼이 켜지지 않는다(2026-10-27 확인). 공식 마켓플레이스도 sha를 고정한다.
