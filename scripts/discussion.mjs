@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /* Claude(Claude Code) + Codex(Codex CLI) 토의 진행 스크립트 (Node.js 18 이상, 외부 패키지 없음)
 
-설계 문서: docs/common.md, docs/consensus-mode-flow.md, docs/judge-mode-flow.md
+설계 문서: docs/common.md, docs/auto-mode-flow.md, docs/manual-mode-flow.md
 
 명령
   start --spec spec.json   토의를 만들고 첫 단계(R1)를 실행한다
   next <id>                다음 단계를 실행한다 (중단된 단계는 다시 실행)
   show <id>                현재 상태와 결과를 출력한다
-  자동 합의 모드 전용: run <id> (종료나 중단까지 단계를 이어서 실행, 중단이면 종료 코드 1)
-  사용자 판정 모드 전용: edit, judge, judge-all, note, req, defer, exclude, pick-wording,
+  자동 모드 전용: run <id> (종료나 중단까지 단계를 이어서 실행, 중단이면 종료 코드 1)
+  수동 모드 전용: edit, judge, judge-all, note, req, defer, exclude, pick-wording,
                         proposal, reopen, final-draft, final, final-fix, confirm, end (-h로 사용법 확인)
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
-  --mode judge|consensus를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
+  --mode manual|auto를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
   start에서는 spec의 mode와 비교한다
 
-spec.json 예 (mode는 필수: "consensus" 또는 "judge". via는 선택: 호출한 진입점, 예 "start")
-  {"mode": "consensus", "topic": "...", "background": "...",
+spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 진입점, 예 "start")
+  {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
-   "max_rounds": 5, "clean_final": true}   (clean_final은 자동 합의 모드 전용, 기본 true)
+   "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -235,7 +235,8 @@ function discussionDir(id) {
 
 function load(d) {
   const st = JSON.parse(readText(path.join(d, "state.json")));
-  st.mode ??= "consensus";   // 0.2.x에서 mode 없이 저장된 state는 자동 합의로 읽는다
+  st.mode ??= "auto";   // 0.2.x에서 mode 없이 저장된 state는 자동 모드로 읽는다
+  st.mode = OLD_MODES[st.mode] ?? st.mode;   // 0.4.x 이전 이름(judge·consensus)으로 저장된 state
   return st;
 }
 
@@ -253,7 +254,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
   /* AI 한 번 호출 → 원문 저장 → 파싱·검사. 형식 오류는 JSON만 한 번 다시 받는다.
      lenient가 있으면 재시도도 실패했을 때 멈추지 않고 lenient(본문, 읽은 JSON 또는 null, 오류)를 돌려준다 */
   const once = async (p, attempt) => {
-    const fakeFn = st.mode === "consensus" ? fakeConsensus : fakeJudge;
+    const fakeFn = st.mode === "auto" ? fakeAuto : fakeManual;
     const fake = st.dry_run ? () => fakeFn(st, tag, who, attempt) : null;
     let text;
     try {
@@ -297,7 +298,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
 }
 
 
-// ── 자동 합의 모드 (docs/consensus-mode-flow.md) ──────────────────────
+// ── 자동 모드 (docs/auto-mode-flow.md) ──────────────────────────────
 const STEP_KO = { r1: "R1 독립 답변", draft: "통합 초안", review: "검토", revise: "수정", clean: "정리본" };
 const HOW_KO = { applied: "반영", modified: "고쳐 반영", withdrawn: "철회" };
 
@@ -358,7 +359,7 @@ function header(st, who) {
     + `${tools}최종 출력에는 응답만 내라. 한국어로 답하라.\n\n[주제]\n${st.topic}\n`;
   if (st.background) s += `\n[배경]\n${st.background}\n`;
   if (st.requirements.length) {
-    // 판정 모드는 요구사항을 {"id", "text", "round"}로 저장한다
+    // 수동 모드는 요구사항을 {"id", "text", "round"}로 저장한다
     s += "\n[요구사항]\n" + bullets(st.requirements.map((r) => (isDict(r) ? r.text : r)));
   }
   if (st.context) s += `\n[참조 자료]\n${st.context}\n`;
@@ -705,7 +706,7 @@ function report(st) {
 
 function printStatus(d, st) {
   const x = st.author, y = OTHER[st.author];
-  print(`토의: ${path.basename(d)}  (자동 합의 · 작성자 ${NAMES[x]} / 검토자 ${NAMES[y]})`);
+  print(`토의: ${path.basename(d)}  (자동 모드 · 작성자 ${NAMES[x]} / 검토자 ${NAMES[y]})`);
   if (st.status === "done") {
     print(`상태: 종료 · 결과 ${st.result}`);
   } else if (st.status === "halted") {
@@ -725,7 +726,7 @@ function printStatus(d, st) {
     print("\n" + report(st));
     print(`기록: ${path.join(d, "log.md")}`);
   } else {
-    print(`다음: node discussion.mjs run ${path.basename(d)} --mode consensus`);
+    print(`다음: node discussion.mjs run ${path.basename(d)} --mode auto`);
   }
 }
 
@@ -750,7 +751,7 @@ async function runPending(d, st, show = true) {
 
 const STEPS = { r1: stepR1, draft: stepDraft, review: stepReview, revise: stepRevise, clean: stepClean };
 
-function fakeConsensus(st, tag, who, attempt) {
+function fakeAuto(st, tag, who, attempt) {
   // --dry-run 용 가짜 응답. scenario로 합의·교착·최대 라운드·형식 오류·호출 실패를 만든다
   const sc = st.scenario, rnd = st.round, pts = st.points;
   if (tag === "r1") {
@@ -802,12 +803,12 @@ function fakeConsensus(st, tag, who, attempt) {
   return `지적별 응답 설명\n\n\`\`\`json\n${JSON.stringify({ responses: rs, edits })}\n\`\`\``;
 }
 
-// wording·converge는 판정 모드 전용, badapprove·late_point·patch_miss·question은 자동 합의 모드 전용. format_halt는 판정 모드에서 누락 처리가 된다
+// wording·converge는 수동 모드 전용, badapprove·late_point·patch_miss·question은 자동 모드 전용. format_halt는 수동 모드에서 누락 처리가 된다
 const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge",
   "late_point", "patch_miss", "question"];
 
 function nextAuthor() {
-  // 토의마다 첫 작성자를 번갈아 정한다 (직전 자동 합의 토의의 반대쪽)
+  // 토의마다 첫 작성자를 번갈아 정한다 (직전 자동 모드 토의의 반대쪽)
   let last = null;
   for (const d of listDiscussions()) {
     let s;
@@ -816,13 +817,13 @@ function nextAuthor() {
     } catch {
       continue;
     }
-    if (s.mode === "consensus") last = s.author ?? null;
+    if (s.mode === "auto") last = s.author ?? null;
   }
   return has(OTHER, last) ? OTHER[last] : "claude";
 }
 
 
-// ── 사용자 판정 모드 (docs/judge-mode-flow.md) ────────────────────────
+// ── 수동 모드 (docs/manual-mode-flow.md) ────────────────────────────
 const J_STEP_KO = { r1: "R1 독립 답변", r2: "R2 쟁점표 확인", round: "쟁점 공방", final_review: "최종안 검토" };
 const PHASE_KO = { draft: "쟁점표 초안", baseline: "쟁점표 확정", discussion: "쟁점 공방", final: "최종안", done: "종료" };
 const KIND_KO = { issue: "쟁점", agree_candidate: "합의 후보", one_sided: "한쪽 항목" };
@@ -1081,7 +1082,7 @@ function tableText(st) {
 }
 
 
-// ── 판정 모드: AI 단계 ───────────────────────────────────────────────
+// ── 수동 모드: AI 단계 ───────────────────────────────────────────────
 async function jstepR1(st, d) {
   const prompt = Object.fromEntries(WHO.map((w) => [w,
     header(st, w) + "\n[1단계: 독립 답변]\n상대 답을 보지 않은 상태에서 너의 답을 근거와 함께 제시하라.\n"]));
@@ -1462,13 +1463,13 @@ async function jstepFinal(st, d) {
   }
   appendLog(d, log);
   [st.final.reviews, st.pending_step] = [res, null];
-  st.last_summary = [];   // 검토 결과는 printJudge의 [최종안] 절에 나온다
+  st.last_summary = [];   // 검토 결과는 printManual의 [최종안] 절에 나온다
   return st;
 }
 
 const J_STEPS = { r1: jstepR1, r2: jstepR2, round: jstepRound, final_review: jstepFinal };
 
-function judgeBlockers(st) {
+function manualBlockers(st) {
   // next를 부를 수 없는 이유 목록 (절차 조건만 본다)
   const step = st.pending_step;
   if (st.status === "halted" || ["r1", "final_review"].includes(step)) return [];
@@ -1486,12 +1487,12 @@ function judgeBlockers(st) {
   return out;
 }
 
-function printJudge(d, st) {
+function printManual(d, st) {
   const name = path.basename(d);
-  print(`토의: ${name}  (사용자 판정 · 라운드 ${st.round}/${st.max_rounds} · ${PHASE_KO[st.phase]} 단계)`);
+  print(`토의: ${name}  (수동 모드 · 라운드 ${st.round}/${st.max_rounds} · ${PHASE_KO[st.phase]} 단계)`);
   if (st.status === "halted") {
     print(`상태: 중단 · ${J_STEP_KO[st.pending_step]} 단계 · 사유: ${st.halt_reason}`);
-    print(`재개: node discussion.mjs next ${name} --mode judge`);
+    print(`재개: node discussion.mjs next ${name} --mode manual`);
   } else if (st.status === "done") {
     print(`상태: 종료 · ${st.result}`);
   } else if (st.pending_step) {
@@ -1534,17 +1535,17 @@ function printJudge(d, st) {
   print(`전체 기록: ${posix(path.join(d, "log.md"))}`);
   if (st.status === "done") return;
   const cmds = PHASE_CMDS[st.phase];
-  const blockers = cmds.includes("next") ? judgeBlockers(st) : [];
+  const blockers = cmds.includes("next") ? manualBlockers(st) : [];
   if (blockers.length) process.stdout.write("\nnext 전에 할 일:\n" + blockers.map((b) => `  - ${b}\n`).join(""));
   print("\n쓸 수 있는 명령:");
   for (const c of cmds) {
     if (c === "next" && blockers.length) continue;
-    print("  node discussion.mjs " + CMD_USAGE[c].replaceAll("{id}", `${name} --mode judge`));
+    print("  node discussion.mjs " + CMD_USAGE[c].replaceAll("{id}", `${name} --mode manual`));
   }
 }
 
-function fakeJudge(st, tag, who, attempt) {
-  // --dry-run 용 가짜 응답 (판정 모드). scenario로 철회·교착·최대 라운드·표현 충돌·형식 오류·호출 실패를 만든다
+function fakeManual(st, tag, who, attempt) {
+  // --dry-run 용 가짜 응답 (수동 모드). scenario로 철회·교착·최대 라운드·표현 충돌·형식 오류·호출 실패를 만든다
   const sc = st.scenario, items = st.items;
   const block = (obj) => `(${NAMES[who]}) ${tag} 본문\n\n\`\`\`json\n${JSON.stringify(obj)}\n\`\`\``;
 
@@ -1607,11 +1608,11 @@ function fakeJudge(st, tag, who, attempt) {
 }
 
 
-// ── 판정 모드: 진행자·사용자 명령 ─────────────────────────────────────
+// ── 수동 모드: 진행자·사용자 명령 ─────────────────────────────────────
 function openJudge(a) {
   const d = discussionDir(a.id);
   const st = load(d);
-  if (st.mode !== "judge") die("사용자 판정 모드 토의가 아닙니다");
+  if (st.mode !== "manual") die("수동 모드 토의가 아닙니다");
   if (!PHASE_CMDS[st.phase].includes(a.cmd)) {
     const allowed = PHASE_CMDS[st.phase].join(", ") || "없음";
     die(`지금 단계(${PHASE_KO[st.phase]})에서는 ${a.cmd}를 쓸 수 없습니다. 쓸 수 있는 명령: ${allowed}`);
@@ -1631,7 +1632,7 @@ function getItem(st, iid, statuses = null) {
 function commit(d, st, log) {
   appendLog(d, log);
   save(d, st);
-  printJudge(d, st);
+  printManual(d, st);
 }
 
 function resetFinal(st) {
@@ -1957,10 +1958,11 @@ function cmdEnd(a) {
   commit(d, st, `\n## 결과: 판정 없이 종료\n\n- 종료: ${clock()}\n`);
 }
 
-const MODES = { consensus: [STEPS, STEP_KO, printStatus], judge: [J_STEPS, J_STEP_KO, printJudge] };
-const MODE_KO = { consensus: "자동 합의", judge: "사용자 판정" };
+const MODES = { auto: [STEPS, STEP_KO, printStatus], manual: [J_STEPS, J_STEP_KO, printManual] };
+const MODE_KO = { auto: "자동 모드", manual: "수동 모드" };
+const OLD_MODES = { consensus: "auto", judge: "manual" };
 const SPEC_EXAMPLE = `spec 예:
-  {"mode": "judge", "name": "짧은이름", "topic": "...", "background": "...",
+  {"mode": "manual", "name": "짧은이름", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 5}`;
 
 function checkMode(a) {
@@ -1997,7 +1999,7 @@ async function cmdStart(a) {
     if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) die(`폴더가 없습니다: ${workdir}`);
   }
 
-  const author = mode === "consensus" ? nextAuthor() : null;
+  const author = mode === "auto" ? nextAuthor() : null;
   // 토의 이름은 짧게: spec의 name(없으면 주제 앞 10자)
   const slug = [...(spec.name || topic).trim().replace(/[^\p{L}\p{N}_]+/gu, "_")].slice(0, 10).join("").replace(/^_+|_+$/g, "");
   const now = new Date();
@@ -2015,10 +2017,10 @@ async function cmdStart(a) {
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
     + (a.dry_run ? "- dry-run: " + a.scenario + "\n" : "");
   let st;
-  if (mode === "judge") {
+  if (mode === "manual") {
     const reqs = spec.requirements ?? [];
     st = {
-      id: name, mode: "judge", via, topic, background: spec.background ?? "",
+      id: name, mode: "manual", via, topic, background: spec.background ?? "",
       requirements: reqs.map((t, i) => ({ id: `Q${i + 1}`, text: t, round: 0 })),
       context_files: files, context, workdir,
       max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 5))),   // R1, R2 포함
@@ -2030,10 +2032,10 @@ async function cmdStart(a) {
       final: { version: 0, draft: null, reviews: {} }, result: null,
     };
     save(d, st);
-    appendLog(d, `# ${topic}\n\n- 모드: 사용자 판정\n- 시작: ${clock(now)}\n` + meta);
+    appendLog(d, `# ${topic}\n\n- 모드: 수동 모드\n- 시작: ${clock(now)}\n` + meta);
   } else {
     st = {
-      id: name, mode: "consensus", via, topic,
+      id: name, mode: "auto", via, topic,
       background: spec.background ?? "", requirements: spec.requirements ?? [],
       context_files: files, context, workdir,
       max_rounds: Math.max(2, Math.trunc(Number(spec.max_rounds ?? 5))),
@@ -2044,7 +2046,7 @@ async function cmdStart(a) {
       clean_final: spec.clean_final ?? true,   // 합의 뒤 토의 경과 표현을 뺀 정리본을 만든다
     };
     save(d, st);
-    appendLog(d, `# ${topic}\n\n- 모드: AI 자동 합의\n- 시작: ${clock(now)}\n`
+    appendLog(d, `# ${topic}\n\n- 모드: 자동 모드\n- 시작: ${clock(now)}\n`
       + `- 작성자: ${NAMES[author]} / 검토자: ${NAMES[OTHER[author]]}\n` + meta);
   }
   await runPending(d, st);
@@ -2059,8 +2061,8 @@ async function cmdNext(a) {
     showFn(d, st);
     return;
   }
-  if (st.mode === "judge") {
-    const blockers = judgeBlockers(st);
+  if (st.mode === "manual") {
+    const blockers = manualBlockers(st);
     if (blockers.length) die("next를 실행할 수 없습니다:\n" + blockers.map((b) => `  - ${b}\n`).join(""));
   }
   if (a.scenario) {
@@ -2071,10 +2073,10 @@ async function cmdNext(a) {
 }
 
 async function cmdRun(a) {
-  // 자동 합의 토의를 종료나 중단까지 이어서 실행한다. 중단된 토의는 그 단계부터 다시 실행한다
+  // 자동 모드 토의를 종료나 중단까지 이어서 실행한다. 중단된 토의는 그 단계부터 다시 실행한다
   const d = discussionDir(a.id);
   let st = load(d);
-  if (st.mode !== "consensus") die("run은 자동 합의 토의에서만 쓸 수 있습니다. 사용자 판정 토의는 next로 진행하세요");
+  if (st.mode !== "auto") die("run은 자동 모드 토의에서만 쓸 수 있습니다. 수동 모드 토의는 next로 진행하세요");
   while (st.status !== "done") {
     const step = st.pending_step;
     st = await runPending(d, st, false);
@@ -2109,9 +2111,9 @@ const COMMANDS = {
     },
   },
   next: { help: "다음 단계 실행 (중단된 단계는 다시 실행)", fn: cmdNext, args: [ID], opts: { scenario: { choices: SCENARIOS, help: "dry-run 시나리오 변경" } } },
-  run: { help: "자동 합의 토의를 끝날 때까지 실행 (중단되면 종료 코드 1)", fn: cmdRun, args: [ID] },
+  run: { help: "자동 모드 토의를 끝날 때까지 실행 (중단되면 종료 코드 1)", fn: cmdRun, args: [ID] },
   show: { help: "현재 상태 출력", fn: cmdShow, args: [ID] },
-  // 사용자 판정 모드 전용 명령 (docs/judge-mode-flow.md "하위 명령")
+  // 수동 모드 전용 명령 (docs/manual-mode-flow.md "하위 명령")
   edit: { help: "쟁점표 작성·수정 (진행자)", fn: cmdEdit, args: [ID], opts: FILE_OPT("쟁점표 초안 또는 op 목록 JSON") },
   judge: { help: "쟁점 판정", fn: cmdJudge, args: [ID, ITEM, { ...WHO_ARG, optional: true }], opts: { text: { help: "사용자 결론" } } },
   "judge-all": { help: "미해결 쟁점 전체를 한쪽으로 판정", fn: cmdJudgeAll, args: [ID, WHO_ARG] },

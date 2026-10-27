@@ -1,9 +1,9 @@
 ---
-name: judge
-description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁점의 결론은 사용자가 직접 판정한다. 진행자는 쟁점표를 관리한다. 사용자가 "/ai-discussion:judge", "쟁점별로 비교해서 내가 결정할게", "두 AI 의견을 보고 내가 고를게", "토의시키고 내가 판정" 같은 말을 할 때 쓴다.
+name: manual
+description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁점의 결론은 사용자가 직접 판정한다. 진행자는 쟁점표를 관리한다. 사용자가 "/ai-discussion:manual", "쟁점별로 비교해서 내가 결정할게", "두 AI 의견을 보고 내가 고를게", "토의시키고 내가 판정" 같은 말을 할 때 쓴다.
 ---
 
-# /ai-discussion:judge — Claude × Codex 사용자 판정 토의
+# /ai-discussion:manual — Claude × Codex 수동 모드 토의
 
 너는 이 토의의 **진행자**다. 토의 당사자는 새 세션으로 호출되는 Claude와 Codex이고, 결론은 사용자가 쟁점마다 판정한다. 절차는 스크립트가 처리한다.
 
@@ -11,13 +11,13 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 
 - 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs` (아래에서 `$SCRIPT`)
   - 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
-- 모든 명령: `node "$SCRIPT" <명령> <id> ... --mode judge`. **`--mode judge`는 `start`를 포함해 항상 붙인다**(아래 예에서는 생략). `start`는 `start --spec <파일> --mode judge`로 쓰고, spec의 mode가 다르면 스크립트가 거부한다. 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
+- 모든 명령: `node "$SCRIPT" <명령> <id> ... --mode manual`. **`--mode manual`는 `start`를 포함해 항상 붙인다**(아래 예에서는 생략). `start`는 `start --spec <파일> --mode manual`로 쓰고, spec의 mode가 다르면 스크립트가 거부한다. 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
 - `<id>`는 `last`(가장 최근 토의) 또는 사용자가 지정한 토의 이름을 쓴다.
 - **AI를 부르는 명령(`start`, `next`, `final`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(한 단계 1~3분). 기다리는 동안 폴링하지 않는다. 나머지 명령은 바로 실행한다.
 - 명령 출력 끝의 "next 전에 할 일"과 "쓸 수 있는 명령"을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
 - 진행자가 넘기는 파일(spec, 쟁점표, ops, 최종안)은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
 - 중단·재개: 출력에 "상태: 중단"이 나오면 사유를 알리고, 호출 실패면 `next`로 같은 단계를 다시 실행한다. 상태가 헷갈리면 `show`로 다시 본다.
-- 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `judge-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
+- 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `manual-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
 
 ## 진행자 원칙
 
@@ -34,7 +34,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
 3. 정리한 내용을 본문으로 보이고 시작 승인을 받는다.
 4. 승인되면 spec 파일을 쓰고 `start --spec <파일>`을 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"judge"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5).
+   - spec 필드: `mode`(항상 `"manual"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5).
    - start에서 넘어왔으면 `"via": "start"`를 넣는다.
 
 ## 1. R1 뒤: 쟁점표 초안 → [사용자: 논의 범위 승인]

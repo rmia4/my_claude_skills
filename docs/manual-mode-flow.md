@@ -1,7 +1,7 @@
-# 사용자 판정 모드: 쟁점 중심 토의 흐름
+# 수동 모드: 쟁점 중심 토의 흐름
 
 - 상태: 구현·dry-run 검증 완료, 스킬 작성과 실제 CLI 확인은 남음 (2026-10-26)
-- 범위: 사용자 판정 모드만. AI 자동 합의 모드는 [consensus-mode-flow.md](consensus-mode-flow.md)를 따른다.
+- 범위: 수동 모드만. 자동 모드는 [auto-mode-flow.md](auto-mode-flow.md)를 따른다.
 - 공통 규칙(파일 구성, 응답 파싱, 재시도, 호출 실패, 저장·재개, dry-run)은 [common.md](common.md)를 따른다.
 
 ## 목표
@@ -120,7 +120,7 @@
 
 ## 파일 구성
 
-[common.md](common.md)의 파일 구성을 따른다. 판정 모드는 log.md에 진행자 쟁점표와 사용자 판정도 남긴다.
+[common.md](common.md)의 파일 구성을 따른다. 수동 모드는 log.md에 진행자 쟁점표와 사용자 판정도 남긴다.
 
 ## state.json
 
@@ -295,8 +295,8 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 ## 스크립트 구성
 
 - AI 호출: `callClaude`, `callCodex`, 재시도(`ask`)
-- AI 자동 합의 모드는 [consensus-mode-flow.md](consensus-mode-flow.md)의 흐름을 따른다.
-- 판정 모드: 하위 명령 처리, 상태 저장·불러오기, 단계별 프롬프트와 JSON 검사, 쟁점 처리 규칙
+- 자동 모드는 [auto-mode-flow.md](auto-mode-flow.md)의 흐름을 따른다.
+- 수동 모드: 하위 명령 처리, 상태 저장·불러오기, 단계별 프롬프트와 JSON 검사, 쟁점 처리 규칙
 - 사용자 입력은 대화형 메뉴 없이 하위 명령으로만 받는다.
 - dry-run: [common.md](common.md)를 따른다.
 
@@ -306,6 +306,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 2. dry-run 검증 — 완료
 3. 스킬 작성 — 완료 (2026-10-26). `ai-discussion` 플러그인의 `start` 스킬(`skills/start/SKILL.md`, `/ai-discussion:start`)로 만들었다. 스크립트는 `scripts/discussion.mjs`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다.
 4. 스킬 분리 — 완료 (2026-10-26, 0.3.0). 사용자 판정은 `judge` 스킬(`/ai-discussion:judge`), 자동 합의는 `consensus` 스킬로 나누고, `start`는 모드를 정해 두 스킬로 넘기는 입구로 남겼다. 공용 규칙은 [common.md](common.md) "모드 확인"을 따른다.
+5. 모드 이름 변경 — 완료 (2026-10-27, 0.5.0). 판정 모드를 수동 모드(`manual`, `/ai-discussion:manual`), 합의 모드를 자동 모드(`auto`, `/ai-discussion:auto`)로 바꿨다. 스킬 폴더, 설계 문서 파일명, state의 `mode` 값도 바꿨다. 쟁점 판정 명령 `judge`와 쟁점 상태 "사용자 판정"은 모드 이름이 아니므로 그대로 둔다.
 4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
 
 ## 구현하며 정한 것 (2026-10-26)
