@@ -1,6 +1,6 @@
 {
   "name": "ai-discussion",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 진행자로서 쟁점표를 관리하며 사용자가 판정하거나(수동 모드) 두 AI가 스스로 합의하게(자동 모드) 진행한다. /ai-discussion:manual(수동 모드)과 /ai-discussion:auto(자동 모드)가 주 명령이고, /ai-discussion:start는 모드 미정 요청과 이전 명령 호환용 입구다.",
   "author": {
     "name": "rmia4"

@@ -63,7 +63,7 @@ claude plugin install ai-discussion@my-claude-skills
 - **파일 접근:** spec에 `workdir`를 주면 두 AI가 그 폴더를 읽기 전용으로 참조합니다. Claude는 Read·Glob·Grep만, Codex는 read-only sandbox입니다. 두 AI 모두 파일을 고치지 않습니다.
 - **외부 전송과 사용량:** 주제, 배경, `context` 파일 내용, `workdir`에서 읽은 파일은 Anthropic과 OpenAI로 전송됩니다. 사용량도 각 CLI에 로그인한 계정에서 나갑니다. 민감한 자료는 넣지 마세요.
 - **시간:** AI 단계 하나에 보통 1~3분 걸립니다. 호출 하나의 제한 시간은 10분이고, 실패하면 2번까지 다시 시도합니다. 그래도 실패하면 토의가 중단 상태가 되고, `next`로 같은 단계를 다시 실행할 수 있습니다.
-- **CLI 버전:** `claude -p`와 `codex exec`의 옵션에 맞춰 만들었습니다(확인한 버전: claude 2.1.300, codex-cli 0.163.0). CLI 옵션이 바뀌면 호출이 실패할 수 있습니다.
+- **CLI 버전:** `claude -p`와 `codex exec`의 옵션에 맞춰 만들었습니다(확인한 버전: claude 2.1.311, codex-cli 0.163.0). CLI 옵션이 바뀌면 호출이 실패할 수 있습니다.
 - **운영체제:** Windows에서만 확인했습니다. macOS·Linux에서는 아직 돌려 보지 않았습니다.
 
 ## 구조
