@@ -13,6 +13,7 @@
 ## 파일 구성
 
 ```
+discussions/.gitignore      `*` 한 줄. 폴더를 처음 만들 때 생성해 git에서 제외한다 (이미 있으면 두기)
 discussions/20261026-1030_주제/
   ├ state.json        현재 상태 (스크립트만 씀)
   ├ log.md            사람이 읽는 전체 기록

@@ -2012,6 +2012,9 @@ async function cmdStart(a) {
     n += 1;
   }
   fs.mkdirSync(path.join(d, "raw"), { recursive: true });
+  // 토의 기록이 호출한 프로젝트의 git에 섞이지 않게 폴더 전체를 무시시킨다. 사용자가 고친 파일은 덮어쓰지 않는다
+  const ignore = path.join(DISCUSSIONS, ".gitignore");
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
   const name = path.basename(d);
   const meta = (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
