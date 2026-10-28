@@ -1,8 +1,14 @@
 # 프로젝트 규칙
 
-## 플러그인 브랜치를 푸시하면 main의 marketplace sha도 갱신한다
+## 작업이 끝나면 로컬 커밋까지만 한다
 
-플러그인 브랜치(예: `ai_discussion`)에 커밋을 푸시할 때마다 이어서 main도 갱신한다. 브랜치 푸시와 한 묶음으로 처리하고 따로 묻지 않는다.
+작업을 마치면 로컬 커밋까지만 한다. 푸시와 main의 marketplace sha 갱신은 사용자가 요청할 때만 한다.
+
+**Why:** 사용자가 푸시 시점을 직접 정하려 한다(2026-10-28 지시). 이전에는 브랜치 푸시와 marketplace 갱신을 묻지 않고 한 묶음으로 처리했다.
+
+## 푸시를 요청받으면 main의 marketplace sha도 갱신한다
+
+사용자가 플러그인 브랜치(예: `ai_discussion`) 푸시를 요청하면, 푸시한 뒤 이어서 main도 갱신한다. 이 둘은 한 묶음이다.
 
 1. `git rev-parse origin/<브랜치>`로 원격 커밋의 전체 해시를 확인한다.
 2. main의 `.claude-plugin/marketplace.json`에서 그 플러그인 항목의 `source.sha`를 그 해시로 바꾼다.
