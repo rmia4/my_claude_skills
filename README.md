@@ -8,7 +8,8 @@ Claude Code 플러그인입니다. 이 브랜치의 루트가 플러그인 루�
 |---|---|---|
 | `ai-discussion` | `/ai-discussion:manual` | Claude와 Codex가 쟁점별로 공방하고, 사용자가 쟁점마다 판정합니다. |
 | | `/ai-discussion:auto` | 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의로, 두 AI가 스스로 합의합니다. |
-| | `/ai-discussion:start` | 모드 미정·이전 명령 호환용 입구. 모드를 정해 위 두 스킬로 넘깁니다. |
+| | `/ai-discussion:compare` | 두 AI가 서로의 답을 보지 않고 따로 답하고, 진행자가 요약·공통점·차이점을 정리합니다. 후속 질문을 이어 갈 수 있습니다. |
+| | `/ai-discussion:start` | 모드 미정·이전 명령 호환용 입구. 모드를 정해 위 세 스킬로 넘깁니다. |
 
 ## 설치
 
@@ -29,7 +30,7 @@ claude plugin marketplace add rmia4/my_claude_skills
 claude plugin install ai-discussion@my-claude-skills
 ```
 
-설치한 뒤 Claude Code를 다시 시작하면 `/ai-discussion:manual`와 `/ai-discussion:auto`를 쓸 수 있습니다. 모드를 정하지 않은 "Claude랑 Codex에게 토의시켜" 같은 말은 `/ai-discussion:start`가 받아 모드를 정한 뒤 넘깁니다.
+설치한 뒤 Claude Code를 다시 시작하면 `/ai-discussion:manual`, `/ai-discussion:auto`, `/ai-discussion:compare`를 쓸 수 있습니다. 모드를 정하지 않은 "Claude랑 Codex에게 토의시켜" 같은 말은 `/ai-discussion:start`가 받아 모드를 정한 뒤 넘깁니다.
 
 ## 필요한 것
 
@@ -72,7 +73,8 @@ claude plugin install ai-discussion@my-claude-skills
 .claude-plugin/plugin.json         플러그인 정보
 skills/manual/SKILL.md              수동 모드 토의 절차
 skills/auto/SKILL.md          자동 모드 토의 절차
-skills/start/SKILL.md              모드를 정해 위 두 스킬로 넘기는 입구
+skills/compare/SKILL.md            비교 모드 절차
+skills/start/SKILL.md              모드를 정해 위 세 스킬로 넘기는 입구
 scripts/discussion.mjs             AI 호출·상태 저장·규칙 적용 스크립트
 docs/                              설계 문서
 ```

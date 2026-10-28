@@ -1,7 +1,7 @@
 # 공통 규칙 (두 모드 공용)
 
 - 상태: 계획 확정, 미구현 (2026-10-26)
-- 적용: [manual-mode-flow.md](manual-mode-flow.md)(수동 모드), [auto-mode-flow.md](auto-mode-flow.md)(자동 모드)
+- 적용: [manual-mode-flow.md](manual-mode-flow.md)(수동 모드), [auto-mode-flow.md](auto-mode-flow.md)(자동 모드), [compare-mode-flow.md](compare-mode-flow.md)(비교 모드)
 - 이 문서의 규칙은 두 모드에 똑같이 적용한다. 모드마다 다른 규칙은 각 모드 문서에만 적는다. 한 모드 문서의 규칙을 다른 모드에 가져다 쓰지 않는다.
 
 ## 원칙
@@ -48,7 +48,7 @@ discussions/20261026-1030_주제/
 ## 모드 확인
 
 - 새 spec에는 `mode`가 필수다. 없으면 `start`가 spec 예시와 함께 거부한다. 0.2.x에서 mode 없이 저장된 state는 `auto`로 읽고, 0.4.x 이전 이름(`judge`·`consensus`)으로 저장된 state는 `manual`·`auto`로 읽는다.
-- 토의를 여는 모든 명령은 `--mode manual|auto`를 받는다. 주면 `last`나 지정 id를 실제 토의로 찾은 뒤 state의 mode와 비교하고, 다르면 거부하며 맞는 스킬(`/ai-discussion:<mode>`)을 알려 준다. `start` 명령도 `--mode`를 받으며, spec의 mode와 다르면 거부한다. 모드 스킬은 항상 붙이고, `start` 스킬은 재개할 모드를 알아낼 때만 빼고 `show`를 부른다.
+- 토의를 여는 모든 명령은 `--mode manual|auto|compare`를 받는다. 주면 `last`나 지정 id를 실제 토의로 찾은 뒤 state의 mode와 비교하고, 다르면 거부하며 맞는 스킬(`/ai-discussion:<mode>`)을 알려 준다. `start` 명령도 `--mode`를 받으며, spec의 mode와 다르면 거부한다. 모드 스킬은 항상 붙이고, `start` 스킬은 재개할 모드를 알아낼 때만 빼고 `show`를 부른다.
 - spec의 `via`(예: `"start"`)는 state에 그대로 남긴다. `start` 스킬의 사용 비율을 보고 제거 여부를 판단하는 데 쓴다.
 - `start`는 `claude`·`codex` CLI가 PATH에 없으면 시작하지 않는다(dry-run 제외).
 
@@ -105,7 +105,7 @@ discussions/20261026-1030_주제/
 - 진행자는 AI 본문을 채팅에 옮기지 않는다. 각 단계에서 **채택된 시도**의 raw 파일을 링크로 남겨, 사용자가 원할 때 바로 열어 보게 한다.
 - 채팅에는 스크립트가 출력한 상태(쟁점표·지적 목록과 처리 결과)를 보인다. 그 안의 입장·반박·지적 문장은 AI가 JSON에 쓴 문장 그대로이므로 요약이 아니다.
 - 재시도 전 응답과 실패한 응답은 raw에만 남기고 링크하지 않는다.
-- `halted`일 때는 중단된 단계, 오류 내용, 재개 방법(수동 모드는 `next <id>`, 자동 모드는 `run <id>`)을 보여 준다.
+- `halted`일 때는 중단된 단계, 오류 내용, 재개 방법(수동·비교 모드는 `next <id>`, 자동 모드는 `run <id>`)을 보여 준다.
 
 ## dry-run
 

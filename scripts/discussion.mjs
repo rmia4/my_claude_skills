@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Claude(Claude Code) + Codex(Codex CLI) 토의 진행 스크립트 (Node.js 18 이상, 외부 패키지 없음)
 
-설계 문서: docs/common.md, docs/auto-mode-flow.md, docs/manual-mode-flow.md
+설계 문서: docs/common.md, docs/auto-mode-flow.md, docs/manual-mode-flow.md, docs/compare-mode-flow.md
 
 명령
   start --spec spec.json   토의를 만들고 첫 단계(R1)를 실행한다
@@ -10,14 +10,16 @@
   자동 모드 전용: run <id> (종료나 중단까지 단계를 이어서 실행, 중단이면 종료 코드 1)
   수동 모드 전용: edit, judge, judge-all, note, req, defer, exclude, pick-wording,
                         proposal, reopen, final-draft, final, final-fix, confirm, end (-h로 사용법 확인)
+  비교 모드 전용: ask(후속 질문), analysis(진행자 분석 기록), end
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
-  --mode manual|auto를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
+  --mode manual|auto|compare를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
   start에서는 spec의 mode와 비교한다
 
-spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 진입점, 예 "start")
+spec.json 예 (mode는 필수: "auto", "manual" 또는 "compare". via는 선택: 호출한 진입점, 예 "start")
   {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
+  비교 모드는 topic이 첫 질문이고 max_rounds를 쓰지 않는다
   선택: "claude_model" (참가 Claude 모델, 없으면 --model 없이 불러 CLI 기본 모델을 쓴다),
         "review_r1": "full" | "criteria" (자동 모드 전용, 시험용. criteria면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다)
         "fixed_empty_dir": true (측정 실험용. workdir가 없을 때 단계마다 새 임시 폴더 대신 토의마다 같은 경로의 빈 폴더에서 두 CLI를 실행한다)
@@ -337,7 +339,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
   /* AI 한 번 호출 → 원문 저장 → 파싱·검사. 형식 오류는 JSON만 한 번 다시 받는다.
      lenient가 있으면 재시도도 실패했을 때 멈추지 않고 lenient(본문, 읽은 JSON 또는 null, 오류)를 돌려준다 */
   const once = async (p, attempt) => {
-    const fakeFn = st.mode === "auto" ? fakeAuto : fakeManual;
+    const fakeFn = { auto: fakeAuto, manual: fakeManual, compare: fakeCompare }[st.mode];
     const fake = st.dry_run ? () => fakeFn(st, tag, who, attempt) : null;
     let r;
     try {
@@ -449,16 +451,19 @@ const READ_HOW = {
 };
 
 function header(st, who) {
+  // 비교 모드는 다른 AI를 알리지 않고 질문에 답하게만 한다. 질문은 단계에서 붙인다
+  const compare = st.mode === "compare";
   const tools = st.workdir
-    ? "이 작업은 코드를 수정하지 않는 토의다. 제공된 참조 자료로 충분하면 추가 파일 읽기를 생략하라. "
+    ? (compare ? "이 작업은 코드를 수정하지 않고 질문에 답하는 작업이다. " : "이 작업은 코드를 수정하지 않는 토의다. ")
+      + "제공된 참조 자료로 충분하면 추가 파일 읽기를 생략하라. "
       + "부족하면 확인할 사실을 정하고 " + READ_HOW[who]
       + "위치 확인 없이 파일을 통째로 읽지 말고, 큰 파일은 필요한 범위로 나누어 확인하라. "
       + "이미 제공되거나 확인한 동일 내용을 불필요하게 다시 읽지 마라. "
       + "판단에 필요한 문맥이 부족하면 인접 범위를 추가 확인하되 고정된 줄 수 상한은 두지 않는다. "
       + "근거로 사용한 파일의 경로와 줄 범위를 밝혀라. 파일은 수정하거나 생성하지 마라. "
     : "도구나 파일을 쓰지 마라. ";
-  let s = `너는 ${NAMES[who]}이다. 다른 AI인 ${NAMES[OTHER[who]]}와 아래 주제를 함께 토의해 결론을 찾는다. `
-    + `${tools}최종 출력에는 응답만 내라. 한국어로 답하라.\n\n[주제]\n${st.topic}\n`;
+  let s = (compare ? "아래 질문에 답하라. " : `너는 ${NAMES[who]}이다. 다른 AI인 ${NAMES[OTHER[who]]}와 아래 주제를 함께 토의해 결론을 찾는다. `)
+    + `${tools}최종 출력에는 응답만 내라. 한국어로 답하라.\n` + (compare ? "" : `\n[주제]\n${st.topic}\n`);
   if (st.background) s += `\n[배경]\n${st.background}\n`;
   if (st.requirements.length) {
     // 수동 모드는 요구사항을 {"id", "text", "round"}로 저장한다
@@ -929,7 +934,8 @@ function fakeAuto(st, tag, who, attempt) {
   return `지적별 응답 설명\n\n\`\`\`json\n${JSON.stringify({ responses: rs, edits })}\n\`\`\``;
 }
 
-// wording·converge는 수동 모드 전용, badapprove·late_point·patch_miss·question은 자동 모드 전용. format_halt는 수동 모드에서 누락 처리가 된다
+// wording·converge는 수동 모드 전용, badapprove·late_point·patch_miss·question은 자동 모드 전용. format_halt는 수동 모드에서 누락 처리가 된다.
+// 비교 모드는 callfail만 쓰고 나머지는 보통 답변이 된다
 const SCENARIOS = ["agree", "stall", "maxround", "format", "format_halt", "badapprove", "callfail", "wording", "converge",
   "late_point", "patch_miss", "question"];
 
@@ -2082,17 +2088,117 @@ function cmdConfirm(a) {
 }
 
 function cmdEnd(a) {
+  if (load(discussionDir(a.id)).mode === "compare") return endCompare(a);
   const [d, st] = openJudge(a);
   [st.status, st.phase, st.pending_step, st.result] = ["done", "done", null, "판정 없이 종료"];
   commit(d, st, `\n## 결과: 판정 없이 종료\n\n- 종료: ${clock()}\n`);
 }
 
-const MODES = { auto: [STEPS, STEP_KO, printStatus], manual: [J_STEPS, J_STEP_KO, printManual] };
-const MODE_KO = { auto: "자동 모드", manual: "수동 모드" };
+// ── 비교 모드 (docs/compare-mode-flow.md) ───────────────────────────
+const C_STEP_KO = { answer: "답변" };
+const C_CMD_USAGE = {
+  next: "next {id}   (중단된 답변 단계를 다시 실행)",
+  analysis: "analysis {id} --file analysis.md [--turn N]   (진행자 분석 기록, 기본은 마지막 차례)",
+  ask: 'ask {id} "후속 질문"   (또는 --file question.md)',
+  end: "end {id}",
+};
+
+async function cstepAnswer(st, d) {
+  // 마지막 질문에 두 AI가 따로 답한다. 각자 이전 질문과 자기 이전 답만 본다(상대 답은 주지 않는다)
+  const t = st.turns.at(-1), prev = st.turns.slice(0, -1);
+  const prompt = (w) => header(st, w)
+    + prev.map((p) => `\n[이전 질문 ${p.n}]\n${p.question}\n\n[너의 이전 답 ${p.n}]\n${p.answers[w]}\n`).join("")
+    + `\n[${prev.length ? "이번 " : ""}질문]\n${t.question}\n`;
+  t.answers = await both(WHO.map((w) => callStep(st, d, w, `t${t.n}`, prompt(w), false, (body) => body)));
+  appendLog(d, `\n## T${t.n} 질문\n\n${t.question}\n` + WHO.map((w) => `\n### T${t.n} · ${NAMES[w]}\n\n${t.answers[w]}\n`).join(""));
+  st.pending_step = null;
+  return st;
+}
+
+const C_STEPS = { answer: cstepAnswer };
+
+function fakeCompare(st, tag, who) {
+  // --dry-run 용 가짜 응답 (비교 모드). callfail만 만든다
+  if (st.scenario === "callfail") throw new Error("가짜 호출 실패");
+  return `(${NAMES[who]}) ${tag.toUpperCase()} 답변`;
+}
+
+function printCompare(d, st) {
+  const name = path.basename(d);
+  print(`토의: ${name}  (비교 모드)`);
+  if (st.status === "halted") {
+    print(`상태: 중단 · T${st.turns.at(-1).n} ${C_STEP_KO[st.pending_step]} 단계 · 사유: ${st.halt_reason}`);
+  } else if (st.status === "done") {
+    print("상태: 종료");
+  } else if (st.pending_step) {
+    print(`다음 AI 단계: T${st.turns.at(-1).n} ${C_STEP_KO[st.pending_step]}`);
+  }
+  for (const t of st.turns) {
+    print(`\n[T${t.n}] ${t.question.split("\n")[0]}`);
+    print("  원문: " + (isEmpty(t.answers) ? "아직 없음" : WHO.map((w) => posix(path.join(d, "raw", `t${t.n}_${w}.md`))).join(", ")));
+    print("  분석: " + (t.analysis ? posix(path.join(d, `t${t.n}_analysis.md`)) : "아직 없음"));
+  }
+  print(`\n전체 기록: ${posix(path.join(d, "log.md"))}`);
+  const used = usageLine(st, d);
+  if (used) print(used);
+  if (st.status === "done") return;
+  print("\n쓸 수 있는 명령:");
+  for (const c of st.pending_step ? ["next", "end"] : ["analysis", "ask", "end"]) {
+    print("  node discussion.mjs " + C_CMD_USAGE[c].replaceAll("{id}", `${name} --mode compare`));
+  }
+}
+
+function openCompare(a) {
+  const d = discussionDir(a.id);
+  const st = load(d);
+  if (st.mode !== "compare") die("비교 모드 토의가 아닙니다");
+  if (st.status === "done") die("이미 끝난 토의입니다");
+  return [d, st];
+}
+
+async function cmdAsk(a) {
+  const [d, st] = openCompare(a);
+  if (st.pending_step) die(`T${st.turns.at(-1).n} 답변이 끝나지 않았습니다. 중단됐으면 next로 다시 실행하세요`);
+  if (a.file && a.text != null) die("질문은 텍스트와 --file 중 하나로만 주세요");
+  const q = (a.file ? readText(a.file) : a.text ?? "").trim();
+  if (!q) die("질문이 필요합니다 (텍스트 또는 --file)");
+  st.turns.push({ n: st.turns.length + 1, question: q, answers: {}, analysis: null });
+  st.pending_step = "answer";
+  save(d, st);   // 저장해 두면 답변이 도는 동안 다른 ask를 막는다
+  await runPending(d, st);
+}
+
+function cmdAnalysis(a) {
+  const [d, st] = openCompare(a);
+  const n = a.turn == null ? st.turns.length : Number(a.turn);
+  const t = Number.isInteger(n) ? st.turns[n - 1] : undefined;
+  if (!t) die(`없는 차례입니다: ${a.turn} (1~${st.turns.length})`);
+  if (isEmpty(t.answers)) die(`T${n} 답변이 아직 없습니다`);
+  const text = readText(a.file).trim();
+  if (!text) die("분석 파일이 비어 있습니다");
+  // 분석의 제목(#~###)은 로그의 차례 제목 아래로 내린다
+  appendLog(d, `\n### T${n} · 진행자 분석${t.analysis ? " (고쳐 씀)" : ""}\n\n${text.replace(/^#{1,3} /gm, "#### ")}\n`);
+  t.analysis = text;
+  writeText(path.join(d, `t${n}_analysis.md`), text + "\n");
+  save(d, st);
+  printCompare(d, st);
+}
+
+function endCompare(a) {
+  const [d, st] = openCompare(a);
+  [st.status, st.pending_step] = ["done", null];
+  appendLog(d, `\n## 종료\n\n- 종료: ${clock()}\n`);
+  save(d, st);
+  printCompare(d, st);
+}
+
+const MODES = { auto: [STEPS, STEP_KO, printStatus], manual: [J_STEPS, J_STEP_KO, printManual], compare: [C_STEPS, C_STEP_KO, printCompare] };
+const MODE_KO = { auto: "자동 모드", manual: "수동 모드", compare: "비교 모드" };
 const OLD_MODES = { consensus: "auto", judge: "manual" };
 const SPEC_EXAMPLE = `spec 예:
   {"mode": "manual", "name": "짧은이름", "topic": "...", "background": "...",
-   "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 5}`;
+   "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 5}
+  비교 모드: {"mode": "compare", "name": "짧은이름", "topic": "첫 질문", "background": "...", "context": [], "workdir": null}`;
 
 function checkMode(a) {
   // 모드 스킬이 다른 모드의 토의를 이어 가지 않도록 막는다 (last와 지정 id 모두 실제 토의를 찾은 뒤 비교)
@@ -2176,6 +2282,19 @@ async function cmdStart(a) {
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 수동 모드\n- 시작: ${clock(now)}\n` + meta);
+  } else if (mode === "compare") {
+    st = {
+      id: name, mode: "compare", via, topic,
+      background: spec.background ?? "", requirements: spec.requirements ?? [],
+      context_files: files, context, workdir, claude_model: claudeModel,
+      dry_run: a.dry_run, scenario: a.scenario,
+      status: "running", pending_step: "answer", halt_reason: null,
+      turns: [{ n: 1, question: topic, answers: {}, analysis: null }],   // topic이 첫 질문이다
+      ...(fixedDir ? { fixed_empty_dir: true } : {}),
+      ...(usage ? { usage: true } : {}),
+    };
+    save(d, st);
+    appendLog(d, `# ${topic}\n\n- 모드: 비교 모드\n- 시작: ${clock(now)}\n` + meta);
   } else {
     st = {
       id: name, mode: "auto", via, topic,
@@ -2211,6 +2330,7 @@ async function cmdNext(a) {
     const blockers = manualBlockers(st);
     if (blockers.length) die("next를 실행할 수 없습니다:\n" + blockers.map((b) => `  - ${b}\n`).join(""));
   }
+  if (st.mode === "compare" && !st.pending_step) die("다시 실행할 답변 단계가 없습니다. 후속 질문은 ask로 하세요");
   if (a.scenario) {
     if (!st.dry_run) die("--scenario는 dry-run 토의에서만 쓸 수 있습니다");
     st.scenario = a.scenario;
@@ -2274,7 +2394,10 @@ const COMMANDS = {
   final: { help: "최종안 등록 후 두 AI 검토", fn: cmdFinal, args: [ID], opts: FILE_OPT("최종안 Markdown 파일") },
   "final-fix": { help: "최종안 표현 지적 반영 (재검토 없음)", fn: cmdFinalFix, args: [ID], opts: FILE_OPT("최종안 Markdown 파일") },
   confirm: { help: "최종 확정", fn: cmdConfirm, args: [ID] },
-  end: { help: "판정 없이 종료", fn: cmdEnd, args: [ID] },
+  end: { help: "판정 없이 종료 (비교 모드: 토의 종료)", fn: cmdEnd, args: [ID] },
+  // 비교 모드 전용 명령 (docs/compare-mode-flow.md)
+  ask: { help: "후속 질문에 두 AI가 따로 답함 (비교 모드)", fn: cmdAsk, args: [ID, { name: "text", optional: true, help: "질문 (또는 --file)" }], opts: { file: { help: "질문 Markdown 파일" } } },
+  analysis: { help: "진행자 분석 기록 (비교 모드)", fn: cmdAnalysis, args: [ID], opts: { ...FILE_OPT("분석 Markdown 파일"), turn: { help: "차례 번호 (기본: 마지막)" } } },
 };
 // 토의를 여는 모든 명령과 start에 --mode를 둔다 (start는 spec의 mode와 비교)
 for (const c of Object.values(COMMANDS)) {
