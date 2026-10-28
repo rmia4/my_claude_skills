@@ -18,7 +18,7 @@ spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 
   {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
-  선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수),
+  선택: "claude_model" (참가 Claude 모델, 없으면 --model 없이 불러 CLI 기본 모델을 쓴다),
         "review_r1": "full" | "criteria" (자동 모드 전용, 시험용. criteria면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다)
         "fixed_empty_dir": true (측정 실험용. workdir가 없을 때 단계마다 새 임시 폴더 대신 토의마다 같은 경로의 빈 폴더에서 두 CLI를 실행한다)
         "usage": true (호출마다 토큰 사용량을 raw/usage.jsonl에 기록하고 상태 출력에 합계를 보인다. 기본은 끈다)
@@ -43,11 +43,10 @@ const CODEX_LEAN = ["apps", "plugins", "multi_agent", "image_generation", "brows
 const CODEX_LEAN_ERROR = /Unknown feature flag|unexpected argument '--disable'/;
 // 참가 Claude의 하네스 문맥을 줄인다: 사용자 MCP·스킬·user/local 설정(훅·CLAUDE.md 등)을 싣지 않는다
 const CLAUDE_LEAN = ["--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "project"];
-const CLAUDE_MODEL = "claude-opus-5-5";   // spec의 claude_model이 없을 때. user 설정을 안 읽으므로 모델을 직접 정한다
 const TIMEOUT_SEC = 600;
 let WORKDIR = null;   // --workdir 지정 시 두 AI가 이 폴더의 파일을 읽기 전용으로 참조
 let RUN_DIR = null;   // 두 CLI의 작업 폴더: WORKDIR, 없으면 단계마다 만드는 빈 임시 폴더
-let MODEL = CLAUDE_MODEL;
+let MODEL = null;   // spec의 claude_model. null이면 --model을 넘기지 않아 CLI 기본 모델을 쓴다
 let codexLean = true;   // CODEX_LEAN이 거부되면 이 실행 동안 빼고 부른다
 const RETRIES = 2;
 const BACKOFF_SEC = [10, 30];   // 재시도마다 앞서 기다리는 초 (RETRIES만큼, 모델 용량 부족 같은 일시 오류 대비). dry-run에서는 기다리지 않는다
@@ -146,7 +145,7 @@ function callError(r) {
 
 // 호출 결과는 { text, usage }. usage는 두 CLI를 같은 뜻으로 맞춘 토큰 수다(input은 캐시 읽기·쓰기를 포함한 전체 입력)
 async function callClaude(prompt) {
-  const args = [...CLAUDE_CMD.slice(1), ...CLAUDE_LEAN, "--model", MODEL,
+  const args = [...CLAUDE_CMD.slice(1), ...CLAUDE_LEAN, ...(MODEL ? ["--model", MODEL] : []),
     ...(WORKDIR ? ["--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep"] : ["--tools", ""])];
   const r = await run(CLAUDE_CMD[0], args, prompt, RUN_DIR);
   let j = null;
@@ -845,7 +844,7 @@ function printStatus(d, st) {
 
 async function runPending(d, st, show = true) {
   WORKDIR = st.workdir;
-  MODEL = st.claude_model ?? CLAUDE_MODEL;   // 0.6.x 이전 state에는 없다
+  MODEL = st.claude_model ?? null;   // 0.6.x 이전 state에는 없다
   // workdir가 없으면 빈 폴더에서 실행해 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 한다.
   // fixed_empty_dir(측정 실험용)면 토의마다 같은 경로를 단계마다 비운 채로 다시 만든다(첫 요청 접두부가 단계 사이에 같아지게)
   let tmp = null;
@@ -2152,8 +2151,8 @@ async function cmdStart(a) {
   const ignore = path.join(DISCUSSIONS, ".gitignore");
   if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
   const name = path.basename(d);
-  const claudeModel = spec.claude_model ?? CLAUDE_MODEL;
-  const meta = `- 참가 Claude 모델: ${claudeModel}\n` + (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
+  const claudeModel = spec.claude_model ?? null;
+  const meta = `- 참가 Claude 모델: ${claudeModel ?? "CLI 기본값"}\n` + (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
     + (fixedDir && !workdir ? "- 고정 빈 폴더: 사용 (측정 실험)\n" : "")
     + (usage ? "- 토큰 사용량 기록: 켬\n" : "")

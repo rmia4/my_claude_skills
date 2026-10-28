@@ -45,12 +45,12 @@ claude plugin install ai-discussion@my-claude-skills
 
 ### CLI 연결과 모델은 터미널에서 직접 설정합니다
 
-플러그인에는 CLI 연결이나 모델을 고르는 기능이 없습니다. 스크립트는 PATH에 있는 `claude`와 `codex`를 그대로 부릅니다. 그래서 각 CLI의 로그인 상태와 기본 모델을 그대로 씁니다.
+플러그인에는 CLI 연결을 고르는 기능이 없습니다. 스크립트는 PATH에 있는 `claude`와 `codex`를 그대로 부릅니다. 그래서 각 CLI의 로그인 상태와 기본 모델을 그대로 씁니다. 참가 Claude 모델만 토의를 시작할 때 따로 지정할 수 있습니다.
 
 | 항목 | 설정 방법 (터미널에서) |
 |---|---|
 | Claude 로그인 | `claude`를 실행해 로그인 |
-| Claude 모델 | Claude Code 설정의 기본 모델 (`claude` 안에서 `/model`, 또는 `~/.claude/settings.json`의 `model`) |
+| Claude 모델 | CLI 기본 모델. 참가 Claude는 user 설정을 읽지 않으므로 `/model`이나 `~/.claude/settings.json`의 `model`은 따르지 않습니다. 다른 모델을 쓰려면 토의를 시작할 때 모델을 말합니다(spec의 `claude_model`) |
 | Codex 로그인 | `codex login` |
 | Codex 모델 | `~/.codex/config.toml`의 `model` |
 

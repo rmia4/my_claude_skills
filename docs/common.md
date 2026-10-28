@@ -10,8 +10,8 @@
 
 ## 호출 방식
 
-- 참가 Claude는 `--strict-mcp-config --disable-slash-commands --setting-sources project --model <모델>`로 부른다. 사용자 MCP·스킬·user/local 설정(훅 등)을 싣지 않아 고정 문맥을 줄인다. 사용자 `~/.claude/CLAUDE.md`는 이 옵션으로 빠지지 않는다(`--bare`는 API 키 인증만 받아 쓰지 않는다).
-- 모델은 spec의 `claude_model`, 없으면 스크립트의 `CLAUDE_MODEL`이다. user 설정을 읽지 않으므로 직접 정한다. state와 log.md 머리에 남긴다.
+- 참가 Claude는 `--strict-mcp-config --disable-slash-commands --setting-sources project`로 부르고, 모델을 지정했으면 `--model <모델>`을 더한다. 사용자 MCP·스킬·user/local 설정(훅 등)을 싣지 않아 고정 문맥을 줄인다. 사용자 `~/.claude/CLAUDE.md`는 이 옵션으로 빠지지 않는다(`--bare`는 API 키 인증만 받아 쓰지 않는다).
+- 모델은 spec의 `claude_model`이다. 없으면 `--model`을 넘기지 않아 CLI 기본 모델을 쓴다. user 설정을 읽지 않으므로 `/model`이나 `~/.claude/settings.json`의 `model`은 따르지 않는다. state와 log.md 머리에 남긴다(지정하지 않았으면 "CLI 기본값").
 - 도구: workdir가 있으면 `--tools "Read,Glob,Grep"`, 없으면 `--tools ""`(도구 정의를 싣지 않는다).
 - Codex는 사용자 설정을 그대로 쓴다(`--ignore-user-config`·`--ignore-rules`를 쓰지 않는다. config.toml의 developer_instructions 유지).
 - Codex는 토의에 쓰지 않는 기능을 끄고 부른다: `--disable apps --disable plugins --disable multi_agent --disable image_generation --disable browser_use --disable computer_use --disable goals --disable tool_suggest`. 고정 문맥이 약 16.8k에서 12.8k로 준다. 안전 규칙(developer_instructions)·사용자 AGENTS.md·권한 안내·훅은 남는다.
