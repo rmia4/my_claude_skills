@@ -18,6 +18,7 @@ spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 
   {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
+  선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -32,8 +33,13 @@ import path from "node:path";
 // ── CLI 실행 설정 (설치된 버전에 맞게 조정) ────────────────────────────
 const CLAUDE_CMD = ["claude", "-p", "--output-format", "json"];   // 프롬프트는 stdin으로 전달. json이라야 usage가 나온다
 const CODEX_CMD = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"];   // --json: stdout JSONL에 usage
+// 참가 Claude의 하네스 문맥을 줄인다: 사용자 MCP·스킬·user/local 설정(훅·CLAUDE.md 등)을 싣지 않는다
+const CLAUDE_LEAN = ["--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "project"];
+const CLAUDE_MODEL = "claude-opus-5-5";   // spec의 claude_model이 없을 때. user 설정을 안 읽으므로 모델을 직접 정한다
 const TIMEOUT_SEC = 600;
 let WORKDIR = null;   // --workdir 지정 시 두 AI가 이 폴더의 파일을 읽기 전용으로 참조
+let RUN_DIR = null;   // 두 CLI의 작업 폴더: WORKDIR, 없으면 단계마다 만드는 빈 임시 폴더
+let MODEL = CLAUDE_MODEL;
 const RETRIES = 2;
 const BACKOFF_SEC = [10, 30];   // 재시도마다 앞서 기다리는 초 (RETRIES만큼, 모델 용량 부족 같은 일시 오류 대비). dry-run에서는 기다리지 않는다
 
@@ -131,8 +137,9 @@ function callError(r) {
 
 // 호출 결과는 { text, usage }. usage는 두 CLI를 같은 뜻으로 맞춘 토큰 수다(input은 캐시 읽기·쓰기를 포함한 전체 입력)
 async function callClaude(prompt) {
-  const args = [...CLAUDE_CMD.slice(1), ...(WORKDIR ? ["--allowedTools", "Read,Glob,Grep"] : [])];
-  const r = await run(CLAUDE_CMD[0], args, prompt, WORKDIR);
+  const args = [...CLAUDE_CMD.slice(1), ...CLAUDE_LEAN, "--model", MODEL,
+    ...(WORKDIR ? ["--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep"] : ["--tools", ""])];
+  const r = await run(CLAUDE_CMD[0], args, prompt, RUN_DIR);
   let j = null;
   try {
     j = JSON.parse(r.stdout);
@@ -181,7 +188,7 @@ async function callCodex(prompt) {
   const out = path.join(os.tmpdir(), `discussion-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
   fs.writeFileSync(out, "");
   try {
-    const args = [...CODEX_CMD.slice(1), ...(WORKDIR ? ["--cd", WORKDIR] : []), "--output-last-message", out, "-"];
+    const args = [...CODEX_CMD.slice(1), "--cd", RUN_DIR, "--output-last-message", out, "-"];
     const r = await run(CODEX_CMD[0], args, prompt, null);
     if (r.code !== 0) throw callError(r);
     return { text: readText(out).trim(), usage: codexUsage(r.stdout) };
@@ -347,7 +354,11 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     if (!e) return v;
     err = e;
   }
-  const retry = `${prompt}\n\n[너의 직전 응답]\n${text}\n\n[형식 오류]\n${err}\n`
+  // 원래 프롬프트는 그대로 둬 첫 호출과 접두부가 같게(캐시) 하고, 직전 응답은 JSON 블록만 붙인다.
+  // 블록이 없으면 본문에서 JSON을 만들어야 하므로 응답 전체를 붙인다
+  const block = [...text.matchAll(JSON_BLOCK_RE)].at(-1);
+  const prev = block ? `[너의 직전 응답의 JSON 블록]\n${block[0]}` : `[너의 직전 응답]\n${text}`;
+  const retry = `${prompt}\n\n${prev}\n\n[형식 오류]\n${err}\n`
     + "본문은 다시 쓰지 말고, 오류를 고친 ```json 블록 하나만 출력하라.";
   [, data, err] = splitJson(await once(retry, 2), true);
   if (!err) {
@@ -523,10 +534,12 @@ async function stepReview(st, d) {
   const rnd = st.round, cap = newCap(st);
   const awaiting = Object.entries(st.points).filter(([, p]) => ["accepted", "rebutted"].includes(p.status)).map(([pid]) => pid);
 
-  let s = header(st, y) + `\n[검토 · 라운드 ${rnd}/${st.max_rounds}]\n너는 검토자다. `
-    + `작성자 ${NAMES[x]}가 쓴 초안을 판단 기준에 비춰 검토하라.\n`
+  // 라운드마다 같은 부분(header, 독립 답변, 판단 기준)을 앞에 둬 접두부 캐시가 맞게 한다
+  let s = header(st, y)
     + `\n[너의 독립 답변]\n${st.r1[y]}\n\n[너의 판단 기준]\n${bullets(st.criteria[y])}`
     + `\n[${NAMES[x]}의 판단 기준]\n${bullets(st.criteria[x])}`
+    + `\n[검토 · 라운드 ${rnd}/${st.max_rounds}]\n너는 검토자다. `
+    + `작성자 ${NAMES[x]}가 쓴 초안을 판단 기준에 비춰 검토하라.\n`
     + `\n[현재 초안 v${st.draft_version}]\n${st.draft}\n`;
   if (rnd === 1) {
     s += "\n초안의 판단 기준 처리(제외·병합)에 이의가 있으면 그것도 지적으로 올려라.\n"
@@ -796,6 +809,10 @@ function printStatus(d, st) {
 
 async function runPending(d, st, show = true) {
   WORKDIR = st.workdir;
+  MODEL = st.claude_model ?? CLAUDE_MODEL;   // 0.6.x 이전 state에는 없다
+  // workdir가 없으면 빈 폴더에서 실행해 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 한다
+  const tmp = WORKDIR ? null : fs.mkdtempSync(path.join(os.tmpdir(), "ai-discussion-"));
+  RUN_DIR = WORKDIR || tmp;
   const step = st.pending_step;
   const [steps, stepKo, showFn] = MODES[st.mode];
   [st.status, st.halt_reason] = ["running", null];
@@ -806,6 +823,8 @@ async function runPending(d, st, show = true) {
     if (!(e instanceof Halt)) throw e;
     [st.status, st.halt_reason] = ["halted", e.message];
     appendLog(d, `\n> 중단 (${stepKo[step]}): ${e.message}\n`);
+  } finally {
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   }
   st.last_raw = [...RAW_WRITTEN];
   save(d, st);
@@ -2082,7 +2101,8 @@ async function cmdStart(a) {
   const ignore = path.join(DISCUSSIONS, ".gitignore");
   if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
   const name = path.basename(d);
-  const meta = (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
+  const claudeModel = spec.claude_model ?? CLAUDE_MODEL;
+  const meta = `- 참가 Claude 모델: ${claudeModel}\n` + (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
     + (a.dry_run ? "- dry-run: " + a.scenario + "\n" : "");
   let st;
@@ -2091,7 +2111,7 @@ async function cmdStart(a) {
     st = {
       id: name, mode: "manual", via, topic, background: spec.background ?? "",
       requirements: reqs.map((t, i) => ({ id: `Q${i + 1}`, text: t, round: 0 })),
-      context_files: files, context, workdir,
+      context_files: files, context, workdir, claude_model: claudeModel,
       max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 5))),   // R1, R2 포함
       dry_run: a.dry_run, scenario: a.scenario,
       status: "running", pending_step: "r1", halt_reason: null,
@@ -2106,7 +2126,7 @@ async function cmdStart(a) {
     st = {
       id: name, mode: "auto", via, topic,
       background: spec.background ?? "", requirements: spec.requirements ?? [],
-      context_files: files, context, workdir,
+      context_files: files, context, workdir, claude_model: claudeModel,
       max_rounds: Math.max(2, Math.trunc(Number(spec.max_rounds ?? 5))),
       author, dry_run: a.dry_run, scenario: a.scenario,
       status: "running", pending_step: "r1", halt_reason: null,

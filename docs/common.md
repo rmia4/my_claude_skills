@@ -7,6 +7,14 @@
 ## 원칙
 
 - 두 AI는 새 세션으로 대등하게 호출한다(`claude -p`, `codex exec`).
+
+## 호출 방식
+
+- 참가 Claude는 `--strict-mcp-config --disable-slash-commands --setting-sources project --model <모델>`로 부른다. 사용자 MCP·스킬·user/local 설정(훅 등)을 싣지 않아 고정 문맥을 줄인다. 사용자 `~/.claude/CLAUDE.md`는 이 옵션으로 빠지지 않는다(`--bare`는 API 키 인증만 받아 쓰지 않는다).
+- 모델은 spec의 `claude_model`, 없으면 스크립트의 `CLAUDE_MODEL`이다. user 설정을 읽지 않으므로 직접 정한다. state와 log.md 머리에 남긴다.
+- 도구: workdir가 있으면 `--tools "Read,Glob,Grep"`, 없으면 `--tools ""`(도구 정의를 싣지 않는다).
+- Codex는 사용자 설정을 그대로 쓴다(`--ignore-user-config`·`--ignore-rules`를 쓰지 않는다. config.toml의 developer_instructions 유지).
+- 작업 폴더: workdir가 있으면 그 폴더, 없으면 단계마다 빈 임시 폴더를 만들어 두 CLI를 거기서 실행하고 단계가 끝나면 지운다. 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 하기 위해서다.
 - 스크립트는 절차만 처리한다. 근거의 질이나 주장의 반복 여부 같은 의미 판단은 하지 않는다.
 - 진행자는 AI 응답을 원문 그대로 보여 준다. 요약이나 평가는 하지 않는다.
 
@@ -54,6 +62,7 @@ discussions/20261026-1030_주제/
 ## 형식 오류 재시도
 
 - 형식 오류가 나면 그 AI만 한 번 더 부른다. 프롬프트는 "본문은 그대로 두고 JSON 블록만 다시 써라"이며, 오류 내용을 함께 준다.
+- 재시도 프롬프트는 원래 프롬프트(첫 호출과 같은 접두부) + 직전 응답의 마지막 JSON 블록 + 오류 내용이다. 직전 응답에 JSON 블록이 없으면 응답 전체를 붙인다(본문에서 JSON을 만들어야 하므로).
 - 재시도에서는 JSON 블록만 새로 받고, 본문은 첫 응답의 것을 쓴다. 초안처럼 본문이 결과물인 경우가 바뀌지 않게 하기 위해서다.
 - 재시도도 실패했을 때의 처리는 모드마다 다르다. 각 모드 문서를 따른다.
 
