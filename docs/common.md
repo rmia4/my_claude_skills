@@ -21,6 +21,7 @@ discussions/20261026-1030_주제/
       ├ r1_claude.md, r1_codex.md
       ├ r2_review_codex.md
       ├ r2_review_codex.try2.md     ← 재시도한 응답
+      ├ usage.jsonl                 ← 호출마다 토큰 사용량 한 줄
       └ ...
 ```
 
@@ -63,6 +64,16 @@ discussions/20261026-1030_주제/
 - 다시 시도하기 전에 10초, 30초를 기다린다(모델 용량 부족 같은 일시 오류). dry-run에서는 기다리지 않는다.
 - 실패 메시지는 stderr에서 `ERROR`로 시작하는 줄(없으면 마지막 3줄)만 보인다. 재시도를 다 쓰고 멈추면 마지막 시도의 stderr 전체를 `raw/<tag>_<who>.stderr.txt`에 저장한다.
 - 재시도를 다 쓰고도 실패하면 `status: halted`로 멈추고 `halt_reason`에 사유를 남긴다.
+
+## 토큰 사용량 기록
+
+- Claude는 `--output-format json`으로 불러 `result`를 본문으로, `usage`·`modelUsage`·`total_cost_usd`를 사용량으로 읽는다. JSON을 읽을 수 없으면 stdout 전체를 본문으로 쓰고 사용량은 비운다. `is_error`면 `result`를 오류 메시지로 쓴다.
+- Codex는 `--json`으로 불러 stdout JSONL의 `turn.completed` usage를 더한다. 본문은 지금처럼 `--output-last-message` 파일에서 읽는다.
+- 응답을 받은 시도마다 `raw/usage.jsonl`에 한 줄을 쓴다: `{tag, who, attempt, model, input, cache_read, cache_write, output, cost_usd, ms}`.
+  - `input`은 캐시 읽기·쓰기를 포함한 전체 입력이다. Claude는 `input_tokens + cache_read + cache_creation`, Codex는 `input_tokens`(캐시 읽기 포함)다.
+  - Codex의 `model`과 `cost_usd`는 출력에 없어 null이다. Claude의 `cost_usd`는 API 정가 기준이라 구독 한도와 같지 않다.
+  - dry-run은 사용량 필드를 null로 쓴다.
+- 상태 출력(`show`, `next`, `run`)에 지금까지의 양측 합계(호출 수, 입력, 캐시 읽기, 출력)를 한 줄로 보인다.
 
 ## 저장 시점과 재개
 

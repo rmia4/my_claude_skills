@@ -30,8 +30,8 @@ import os from "node:os";
 import path from "node:path";
 
 // ── CLI 실행 설정 (설치된 버전에 맞게 조정) ────────────────────────────
-const CLAUDE_CMD = ["claude", "-p", "--output-format", "text"];   // 프롬프트는 stdin으로 전달
-const CODEX_CMD = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only"];
+const CLAUDE_CMD = ["claude", "-p", "--output-format", "json"];   // 프롬프트는 stdin으로 전달. json이라야 usage가 나온다
+const CODEX_CMD = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"];   // --json: stdout JSONL에 usage
 const TIMEOUT_SEC = 600;
 let WORKDIR = null;   // --workdir 지정 시 두 AI가 이 폴더의 파일을 읽기 전용으로 참조
 const RETRIES = 2;
@@ -129,11 +129,51 @@ function callError(r) {
   return e;
 }
 
+// 호출 결과는 { text, usage }. usage는 두 CLI를 같은 뜻으로 맞춘 토큰 수다(input은 캐시 읽기·쓰기를 포함한 전체 입력)
 async function callClaude(prompt) {
   const args = [...CLAUDE_CMD.slice(1), ...(WORKDIR ? ["--allowedTools", "Read,Glob,Grep"] : [])];
   const r = await run(CLAUDE_CMD[0], args, prompt, WORKDIR);
-  if (r.code !== 0) throw callError(r);
-  return r.stdout.trim();
+  let j = null;
+  try {
+    j = JSON.parse(r.stdout);
+  } catch { /* JSON이 아니면 stdout 전체를 본문으로 쓴다 */ }
+  if (r.code !== 0 || j?.is_error) {
+    const e = callError(r);
+    if (isStr(j?.result) && j.result.trim()) e.message = j.result.trim();
+    throw e;
+  }
+  if (!isDict(j)) return { text: r.stdout.trim(), usage: null };
+  const u = j.usage ?? {};
+  const [read, write] = [u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0];
+  return {
+    text: isStr(j.result) ? j.result.trim() : "",
+    usage: {
+      model: Object.keys(j.modelUsage ?? {}).join(",") || null,
+      input: (u.input_tokens ?? 0) + read + write, cache_read: read, cache_write: write,
+      output: u.output_tokens ?? 0, cost_usd: j.total_cost_usd ?? null,
+    },
+  };
+}
+
+function codexUsage(stdout) {
+  // JSONL 이벤트 중 turn.completed의 usage를 더한다. input_tokens는 캐시 읽기를 포함한다
+  let sum = null;
+  for (const line of stdout.split("\n")) {
+    let ev;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (ev?.type !== "turn.completed" || !isDict(ev.usage)) continue;
+    const u = ev.usage;
+    sum ??= { model: null, input: 0, cache_read: 0, cache_write: 0, output: 0, cost_usd: null };
+    sum.input += u.input_tokens ?? 0;
+    sum.cache_read += u.cached_input_tokens ?? 0;
+    sum.cache_write += u.cache_write_input_tokens ?? 0;
+    sum.output += u.output_tokens ?? 0;
+  }
+  return sum;
 }
 
 async function callCodex(prompt) {
@@ -144,22 +184,24 @@ async function callCodex(prompt) {
     const args = [...CODEX_CMD.slice(1), ...(WORKDIR ? ["--cd", WORKDIR] : []), "--output-last-message", out, "-"];
     const r = await run(CODEX_CMD[0], args, prompt, null);
     if (r.code !== 0) throw callError(r);
-    return readText(out).trim();
+    return { text: readText(out).trim(), usage: codexUsage(r.stdout) };
   } finally {
     fs.rmSync(out, { force: true });
   }
 }
 
 async function ask(who, prompt, fake = null) {
-  // fake: --dry-run 용 가짜 호출 함수. 실제 호출과 같은 재시도를 거친다
+  // fake: --dry-run 용 가짜 호출 함수(본문 문자열을 돌려준다). 실제 호출과 같은 재시도를 거친다
   const fn = fake || (who === "claude" ? callClaude : callCodex);
   let last = null;
   for (let i = 0; i <= RETRIES; i++) {
     if (i && !fake) await new Promise((ok) => setTimeout(ok, BACKOFF_SEC[i - 1] * 1000));
     try {
-      const out = await fn(prompt);
-      if (!out.trim()) throw new Error("빈 응답");
-      return out;
+      const t0 = Date.now();
+      const r = await fn(prompt);
+      const out = isStr(r) ? { text: r, usage: null } : r;
+      if (!out.text.trim()) throw new Error("빈 응답");
+      return { ...out, ms: Date.now() - t0 };
     } catch (e) {   // 시간 초과·실행 오류·빈 응답은 재시도
       last = e;
       process.stderr.write(`  ! ${NAMES[who]} 호출 실패, 재시도: ${e.message}\n`);
@@ -249,6 +291,24 @@ function save(d, st) {
 const appendLog = (d, text) => fs.appendFileSync(path.join(d, "log.md"), text + "\n", "utf8");
 
 const RAW_WRITTEN = [];   // 이번 실행에서 저장한 raw 파일 (상태 출력용)
+const USAGE_FILE = "usage.jsonl";   // raw/ 안에 호출마다 한 줄씩 토큰 사용량을 쌓는다
+
+function usageLine(d) {
+  // 지금까지의 호출 합계를 한 줄로. 기록이 없으면 빈 문자열
+  let lines;
+  try {
+    lines = readText(path.join(d, "raw", USAGE_FILE)).split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  } catch {
+    return "";
+  }
+  if (!lines.length) return "";
+  const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+  return "토큰: " + WHO.map((w) => {
+    const ls = lines.filter((l) => l.who === w);
+    const sum = (key) => ls.reduce((a, l) => a + (l[key] ?? 0), 0);
+    return `${NAMES[w]} ${ls.length}회 입력 ${k(sum("input"))}(캐시 읽기 ${k(sum("cache_read"))}) 출력 ${k(sum("output"))}`;
+  }).join(" · ") + ` (${posix(path.join(d, "raw", USAGE_FILE))})`;
+}
 
 async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = null) {
   /* AI 한 번 호출 → 원문 저장 → 파싱·검사. 형식 오류는 JSON만 한 번 다시 받는다.
@@ -256,17 +316,19 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
   const once = async (p, attempt) => {
     const fakeFn = st.mode === "auto" ? fakeAuto : fakeManual;
     const fake = st.dry_run ? () => fakeFn(st, tag, who, attempt) : null;
-    let text;
+    let r;
     try {
-      text = await ask(who, p, fake);
+      r = await ask(who, p, fake);
     } catch (e) {
       if (e.stderr) writeText(path.join(d, "raw", `${tag}_${who}.stderr.txt`), e.stderr);
       throw new Halt(e.message);
     }
     const f = path.join(d, "raw", `${tag}_${who}` + (attempt > 1 ? `.try${attempt}` : "") + ".md");
-    writeText(f, text);
+    writeText(f, r.text);
     RAW_WRITTEN.push(posix(f));   // 진행자가 그대로 링크를 걸 수 있는 경로
-    return text;
+    const u = { tag, who, attempt, model: null, input: null, cache_read: null, cache_write: null, output: null, cost_usd: null, ...r.usage, ms: r.ms };
+    fs.appendFileSync(path.join(d, "raw", USAGE_FILE), JSON.stringify(u) + "\n", "utf8");
+    return r.text;
   };
   const tryValidate = (body, data) => {
     try {
@@ -722,6 +784,8 @@ function printStatus(d, st) {
     print(`  ${pid} ${state}${stall}: ${p.problem}`);
   }
   if (st.last_raw?.length) print("이번 단계 원문: " + st.last_raw.join(", "));
+  const used = usageLine(d);
+  if (used) print(used);
   if (st.status === "done") {
     print("\n" + report(st));
     print(`기록: ${path.join(d, "log.md")}`);
@@ -1533,6 +1597,8 @@ function printManual(d, st) {
   }
   if (st.last_raw?.length) print("\n직전 AI 단계 원문: " + st.last_raw.join(", "));
   print(`전체 기록: ${posix(path.join(d, "log.md"))}`);
+  const used = usageLine(d);
+  if (used) print(used);
   if (st.status === "done") return;
   const cmds = PHASE_CMDS[st.phase];
   const blockers = cmds.includes("next") ? manualBlockers(st) : [];
