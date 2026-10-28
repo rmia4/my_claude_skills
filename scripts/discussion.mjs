@@ -18,7 +18,8 @@ spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 
   {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
-  선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수)
+  선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수),
+        "review_r1": "full" | "criteria" (자동 모드 전용, 시험용. criteria면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -157,7 +158,7 @@ async function callClaude(prompt) {
     usage: {
       model: Object.keys(j.modelUsage ?? {}).join(",") || null,
       input: (u.input_tokens ?? 0) + read + write, cache_read: read, cache_write: write,
-      output: u.output_tokens ?? 0, cost_usd: j.total_cost_usd ?? null,
+      output: u.output_tokens ?? 0, thinking: u.output_tokens_details?.thinking_tokens ?? null, cost_usd: j.total_cost_usd ?? null,
     },
   };
 }
@@ -174,11 +175,12 @@ function codexUsage(stdout) {
     }
     if (ev?.type !== "turn.completed" || !isDict(ev.usage)) continue;
     const u = ev.usage;
-    sum ??= { model: null, input: 0, cache_read: 0, cache_write: 0, output: 0, cost_usd: null };
+    sum ??= { model: null, input: 0, cache_read: 0, cache_write: 0, output: 0, thinking: 0, cost_usd: null };
     sum.input += u.input_tokens ?? 0;
     sum.cache_read += u.cached_input_tokens ?? 0;
     sum.cache_write += u.cache_write_input_tokens ?? 0;
     sum.output += u.output_tokens ?? 0;
+    sum.thinking += u.reasoning_output_tokens ?? 0;
   }
   return sum;
 }
@@ -333,7 +335,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     const f = path.join(d, "raw", `${tag}_${who}` + (attempt > 1 ? `.try${attempt}` : "") + ".md");
     writeText(f, r.text);
     RAW_WRITTEN.push(posix(f));   // 진행자가 그대로 링크를 걸 수 있는 경로
-    const u = { tag, who, attempt, model: null, input: null, cache_read: null, cache_write: null, output: null, cost_usd: null, ...r.usage, ms: r.ms };
+    const u = { tag, who, attempt, model: null, input: null, cache_read: null, cache_write: null, output: null, thinking: null, cost_usd: null, ...r.usage, ms: r.ms };
     fs.appendFileSync(path.join(d, "raw", USAGE_FILE), JSON.stringify(u) + "\n", "utf8");
     return r.text;
   };
@@ -535,8 +537,10 @@ async function stepReview(st, d) {
   const awaiting = Object.entries(st.points).filter(([, p]) => ["accepted", "rebutted"].includes(p.status)).map(([pid]) => pid);
 
   // 라운드마다 같은 부분(header, 독립 답변, 판단 기준)을 앞에 둬 접두부 캐시가 맞게 한다
+  // review_r1이 criteria면 2라운드부터 자기 독립 답변 전문을 빼고 판단 기준만 준다 (시험용, 기본 full)
+  const ownR1 = rnd > 1 && st.review_r1 === "criteria" ? "" : `\n[너의 독립 답변]\n${st.r1[y]}\n`;
   let s = header(st, y)
-    + `\n[너의 독립 답변]\n${st.r1[y]}\n\n[너의 판단 기준]\n${bullets(st.criteria[y])}`
+    + `${ownR1}\n[너의 판단 기준]\n${bullets(st.criteria[y])}`
     + `\n[${NAMES[x]}의 판단 기준]\n${bullets(st.criteria[x])}`
     + `\n[검토 · 라운드 ${rnd}/${st.max_rounds}]\n너는 검토자다. `
     + `작성자 ${NAMES[x]}가 쓴 초안을 판단 기준에 비춰 검토하라.\n`
@@ -2076,6 +2080,8 @@ async function cmdStart(a) {
     if (missing.length) die(`PATH에서 ${missing.join(", ")} CLI를 찾을 수 없습니다. 설치하고 로그인한 뒤 다시 실행하세요`);
   }
   const via = spec.via ?? null;
+  const reviewR1 = spec.review_r1 ?? "full";
+  if (!["full", "criteria"].includes(reviewR1)) die(`spec의 review_r1은 "full" 또는 "criteria"여야 합니다`);
   const files = spec.context ?? [];
   const context = files.map((f) => `--- ${f} ---\n${readText(f)}`).join("\n\n");
   let workdir = spec.workdir ?? null;
@@ -2133,6 +2139,7 @@ async function cmdStart(a) {
       round: 0, r1: {}, criteria: {}, draft: "", draft_version: 0,
       points: {}, next_point: 1, result: null, fail_reason: "",
       clean_final: spec.clean_final ?? true,   // 합의 뒤 토의 경과 표현을 뺀 정리본을 만든다
+      review_r1: reviewR1,
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 자동 모드\n- 시작: ${clock(now)}\n`

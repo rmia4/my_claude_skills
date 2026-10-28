@@ -17,6 +17,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 - 명령 출력 끝의 "next 전에 할 일"과 "쓸 수 있는 명령"을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
 - 진행자가 넘기는 파일(spec, 쟁점표, ops, 최종안)은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
 - 중단·재개: 출력에 "상태: 중단"이 나오면 사유를 알리고, 호출 실패면 `next`로 같은 단계를 다시 실행한다. 상태가 헷갈리면 `show`로 다시 본다.
+- 진행자 토큰 절약: 토의는 새 대화에서 시작하길 권한다(이전 작업 문맥이 매 턴 실린다). raw 파일은 Read하지 않고 링크로만 남긴다. 쟁점표와 승인에 필요한 출력은 줄이지 않는다.
 - 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `manual-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
 
 ## 진행자 원칙
@@ -34,7 +35,8 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
 3. 정리한 내용을 본문으로 보이고 시작 승인을 받는다.
 4. 승인되면 spec 파일을 쓰고 `start --spec <파일>`을 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"manual"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5).
+   - spec 필드: `mode`(항상 `"manual"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5), 선택 `claude_model`(참가 Claude 모델, 보통 비운다).
+   - `context`에는 큰 파일 전문 대신 필요한 부분만 발췌해 넣고, 발췌마다 원래 경로와 줄 번호를 적는다. 원문 전체가 필요하면 `workdir`를 주어 참가자가 직접 읽게 한다.
    - start에서 넘어왔으면 `"via": "start"`를 넣는다.
 
 ## 1. R1 뒤: 쟁점표 초안 → [사용자: 논의 범위 승인]

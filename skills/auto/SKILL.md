@@ -18,6 +18,7 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
 - spec 파일은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
 - **AI 본문은 채팅에 옮기지 않는다.** 원문은 `discussions/<id>/raw/...` 파일 링크로만 남긴다.
 - 중단·재개: 출력에 "상태: 중단"이 나오면(`run`의 종료 코드 1) 사유를 알리고, 호출 실패면 `run`을 다시 실행해 그 단계부터 이어 간다. 상태가 헷갈리면 `show`로 다시 본다.
+- 진행자 토큰 절약: 토의는 새 대화에서 시작하길 권한다(이전 작업 문맥이 매 턴 실린다). raw 파일은 Read하지 않고 링크로만 남긴다. 스크립트 출력은 필요한 부분만 인용한다.
 - 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `auto-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
 
 ## 0. 준비 (사용자 승인 필요)
@@ -26,7 +27,8 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
 2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
 3. 정리한 내용을 채팅 본문으로 보이고 시작 승인을 받는다. 첫 초안 작성자는 토의마다 번갈아 정해진다고 알린다.
 4. 승인되면 spec 파일을 쓰고 `start --spec <파일> --mode auto`를 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"auto"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5), `clean_final`(합의 뒤 토의 경과 표현을 뺀 정리본을 만들지, 기본 true).
+   - spec 필드: `mode`(항상 `"auto"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5), `clean_final`(합의 뒤 토의 경과 표현을 뺀 정리본을 만들지, 기본 true. 표현 정리가 필요 없으면 false로 호출 하나를 줄인다), 선택 `claude_model`(참가 Claude 모델, 보통 비운다), 선택 `review_r1`(`"criteria"`면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다. 시험용이며 사용자가 요청할 때만 넣는다).
+   - `context`에는 큰 파일 전문 대신 필요한 부분만 발췌해 넣고, 발췌마다 원래 경로와 줄 번호를 적는다. 원문 전체가 필요하면 `workdir`를 주어 참가자가 직접 읽게 한다.
    - start에서 넘어왔으면 `"via": "start"`를 넣는다.
 
 ## 1. 진행

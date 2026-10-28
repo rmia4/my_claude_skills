@@ -78,8 +78,9 @@ discussions/20261026-1030_주제/
 
 - Claude는 `--output-format json`으로 불러 `result`를 본문으로, `usage`·`modelUsage`·`total_cost_usd`를 사용량으로 읽는다. JSON을 읽을 수 없으면 stdout 전체를 본문으로 쓰고 사용량은 비운다. `is_error`면 `result`를 오류 메시지로 쓴다.
 - Codex는 `--json`으로 불러 stdout JSONL의 `turn.completed` usage를 더한다. 본문은 지금처럼 `--output-last-message` 파일에서 읽는다.
-- 응답을 받은 시도마다 `raw/usage.jsonl`에 한 줄을 쓴다: `{tag, who, attempt, model, input, cache_read, cache_write, output, cost_usd, ms}`.
+- 응답을 받은 시도마다 `raw/usage.jsonl`에 한 줄을 쓴다: `{tag, who, attempt, model, input, cache_read, cache_write, output, thinking, cost_usd, ms}`.
   - `input`은 캐시 읽기·쓰기를 포함한 전체 입력이다. Claude는 `input_tokens + cache_read + cache_creation`, Codex는 `input_tokens`(캐시 읽기 포함)다.
+  - `thinking`은 `output`에 포함된 생각 토큰이다(Claude `output_tokens_details.thinking_tokens`, Codex `reasoning_output_tokens`).
   - Codex의 `model`과 `cost_usd`는 출력에 없어 null이다. Claude의 `cost_usd`는 API 정가 기준이라 구독 한도와 같지 않다.
   - dry-run은 사용량 필드를 null로 쓴다.
 - 상태 출력(`show`, `next`, `run`)에 지금까지의 양측 합계(호출 수, 입력, 캐시 읽기, 출력)를 한 줄로 보인다.
