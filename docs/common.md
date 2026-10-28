@@ -34,7 +34,7 @@ discussions/20261026-1030_주제/
       ├ r1_claude.md, r1_codex.md
       ├ r2_review_codex.md
       ├ r2_review_codex.try2.md     ← 재시도한 응답
-      ├ usage.jsonl                 ← 호출마다 토큰 사용량 한 줄
+      ├ usage.jsonl                 ← 호출마다 토큰 사용량 한 줄 (spec usage가 true일 때만)
       └ ...
 ```
 
@@ -81,6 +81,7 @@ discussions/20261026-1030_주제/
 
 ## 토큰 사용량 기록
 
+- 기본은 끈다. spec에 `"usage": true`를 줄 때만 아래처럼 기록하고 상태 출력에 보인다. 사용자가 토큰 사용량을 알려 달라고 할 때만 넣는다.
 - Claude는 `--output-format json`으로 불러 `result`를 본문으로, `usage`·`modelUsage`·`total_cost_usd`를 사용량으로 읽는다. JSON을 읽을 수 없으면 stdout 전체를 본문으로 쓰고 사용량은 비운다. `is_error`면 `result`를 오류 메시지로 쓴다.
 - Codex는 `--json`으로 불러 stdout JSONL의 `turn.completed` usage를 더한다. 본문은 지금처럼 `--output-last-message` 파일에서 읽는다.
 - 응답을 받은 시도마다 `raw/usage.jsonl`에 한 줄을 쓴다: `{tag, who, attempt, model, input, cache_read, cache_write, output, thinking, cost_usd, ms}`.

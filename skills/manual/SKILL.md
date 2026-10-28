@@ -35,7 +35,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
 3. 정리한 내용을 본문으로 보이고 시작 승인을 받는다.
 4. 승인되면 spec 파일을 쓰고 `start --spec <파일>`을 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"manual"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5), 선택 `claude_model`(참가 Claude 모델, 보통 비운다), 선택 `fixed_empty_dir`(true면 workdir가 없을 때 토의마다 같은 경로의 빈 폴더를 쓴다. 캐시 측정 실험용이며 사용자가 요청할 때만 넣는다).
+   - spec 필드: `mode`(항상 `"manual"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(두 AI에게 넘길 참조 파일 목록), `workdir`(두 AI가 읽기 전용으로 볼 폴더 또는 null), `max_rounds`(기본 5), 선택 `claude_model`(참가 Claude 모델, 보통 비운다), 선택 `fixed_empty_dir`(true면 workdir가 없을 때 토의마다 같은 경로의 빈 폴더를 쓴다. 캐시 측정 실험용이며 사용자가 요청할 때만 넣는다), 선택 `usage`(true면 호출마다 토큰 사용량을 기록하고 상태 출력에 합계를 보인다. 사용자가 토큰 사용량을 알려 달라고 할 때만 넣는다).
    - `context`에는 큰 파일 전문 대신 필요한 부분만 발췌해 넣고, 발췌마다 원래 경로와 줄 번호를 적는다. 원문 전체가 필요하면 `workdir`를 주어 참가자가 직접 읽게 한다.
    - start에서 넘어왔으면 `"via": "start"`를 넣는다.
 

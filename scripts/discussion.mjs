@@ -21,6 +21,7 @@ spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 
   선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수),
         "review_r1": "full" | "criteria" (자동 모드 전용, 시험용. criteria면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다)
         "fixed_empty_dir": true (측정 실험용. workdir가 없을 때 단계마다 새 임시 폴더 대신 토의마다 같은 경로의 빈 폴더에서 두 CLI를 실행한다)
+        "usage": true (호출마다 토큰 사용량을 raw/usage.jsonl에 기록하고 상태 출력에 합계를 보인다. 기본은 끈다)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -315,8 +316,9 @@ const appendLog = (d, text) => fs.appendFileSync(path.join(d, "log.md"), text + 
 const RAW_WRITTEN = [];   // 이번 실행에서 저장한 raw 파일 (상태 출력용)
 const USAGE_FILE = "usage.jsonl";   // raw/ 안에 호출마다 한 줄씩 토큰 사용량을 쌓는다
 
-function usageLine(d) {
-  // 지금까지의 호출 합계를 한 줄로. 기록이 없으면 빈 문자열
+function usageLine(st, d) {
+  // 지금까지의 호출 합계를 한 줄로. 사용량 기록을 켜지 않았거나 기록이 없으면 빈 문자열
+  if (!st.usage) return "";
   let lines;
   try {
     lines = readText(path.join(d, "raw", USAGE_FILE)).split("\n").filter(Boolean).map((l) => JSON.parse(l));
@@ -348,8 +350,10 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     const f = path.join(d, "raw", `${tag}_${who}` + (attempt > 1 ? `.try${attempt}` : "") + ".md");
     writeText(f, r.text);
     RAW_WRITTEN.push(posix(f));   // 진행자가 그대로 링크를 걸 수 있는 경로
-    const u = { tag, who, attempt, model: null, input: null, cache_read: null, cache_write: null, output: null, thinking: null, cost_usd: null, ...r.usage, ms: r.ms };
-    fs.appendFileSync(path.join(d, "raw", USAGE_FILE), JSON.stringify(u) + "\n", "utf8");
+    if (st.usage) {   // spec의 usage가 true일 때만 기록한다
+      const u = { tag, who, attempt, model: null, input: null, cache_read: null, cache_write: null, output: null, thinking: null, cost_usd: null, ...r.usage, ms: r.ms };
+      fs.appendFileSync(path.join(d, "raw", USAGE_FILE), JSON.stringify(u) + "\n", "utf8");
+    }
     return r.text;
   };
   const tryValidate = (body, data) => {
@@ -829,7 +833,7 @@ function printStatus(d, st) {
     print(`  ${pid} ${state}${stall}: ${p.problem}`);
   }
   if (st.last_raw?.length) print("이번 단계 원문: " + st.last_raw.join(", "));
-  const used = usageLine(d);
+  const used = usageLine(st, d);
   if (used) print(used);
   if (st.status === "done") {
     print("\n" + report(st));
@@ -1657,7 +1661,7 @@ function printManual(d, st) {
   }
   if (st.last_raw?.length) print("\n직전 AI 단계 원문: " + st.last_raw.join(", "));
   print(`전체 기록: ${posix(path.join(d, "log.md"))}`);
-  const used = usageLine(d);
+  const used = usageLine(st, d);
   if (used) print(used);
   if (st.status === "done") return;
   const cmds = PHASE_CMDS[st.phase];
@@ -2121,6 +2125,8 @@ async function cmdStart(a) {
   if (!["full", "criteria"].includes(reviewR1)) die(`spec의 review_r1은 "full" 또는 "criteria"여야 합니다`);
   const fixedDir = spec.fixed_empty_dir ?? false;
   if (typeof fixedDir !== "boolean") die("spec의 fixed_empty_dir은 true 또는 false여야 합니다");
+  const usage = spec.usage ?? false;
+  if (typeof usage !== "boolean") die("spec의 usage는 true 또는 false여야 합니다");
   const files = spec.context ?? [];
   const context = files.map((f) => `--- ${f} ---\n${readText(f)}`).join("\n\n");
   let workdir = spec.workdir ?? null;
@@ -2150,6 +2156,7 @@ async function cmdStart(a) {
   const meta = `- 참가 Claude 모델: ${claudeModel}\n` + (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
     + (fixedDir && !workdir ? "- 고정 빈 폴더: 사용 (측정 실험)\n" : "")
+    + (usage ? "- 토큰 사용량 기록: 켬\n" : "")
     + (a.dry_run ? "- dry-run: " + a.scenario + "\n" : "");
   let st;
   if (mode === "manual") {
@@ -2166,6 +2173,7 @@ async function cmdStart(a) {
       missing_issues: [], proposals: [], note_all: null,
       final: { version: 0, draft: null, reviews: {} }, result: null,
       ...(fixedDir ? { fixed_empty_dir: true } : {}),
+      ...(usage ? { usage: true } : {}),
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 수동 모드\n- 시작: ${clock(now)}\n` + meta);
@@ -2182,6 +2190,7 @@ async function cmdStart(a) {
       clean_final: spec.clean_final ?? true,   // 합의 뒤 토의 경과 표현을 뺀 정리본을 만든다
       review_r1: reviewR1,
       ...(fixedDir ? { fixed_empty_dir: true } : {}),
+      ...(usage ? { usage: true } : {}),
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 자동 모드\n- 시작: ${clock(now)}\n`
