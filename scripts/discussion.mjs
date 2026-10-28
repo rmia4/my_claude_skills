@@ -20,6 +20,7 @@ spec.json 예 (mode는 필수: "auto" 또는 "manual". via는 선택: 호출한 
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
   선택: "claude_model" (참가 Claude 모델, 기본은 CLAUDE_MODEL 상수),
         "review_r1": "full" | "criteria" (자동 모드 전용, 시험용. criteria면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다)
+        "fixed_empty_dir": true (측정 실험용. workdir가 없을 때 단계마다 새 임시 폴더 대신 토의마다 같은 경로의 빈 폴더에서 두 CLI를 실행한다)
 
 사용 예
   node discussion.mjs start --spec spec.json
@@ -34,6 +35,11 @@ import path from "node:path";
 // ── CLI 실행 설정 (설치된 버전에 맞게 조정) ────────────────────────────
 const CLAUDE_CMD = ["claude", "-p", "--output-format", "json"];   // 프롬프트는 stdin으로 전달. json이라야 usage가 나온다
 const CODEX_CMD = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json"];   // --json: stdout JSONL에 usage
+// Codex의 고정 문맥을 줄인다: 토의에 쓰지 않는 기능을 끈다. 안전 규칙(developer_instructions)·AGENTS.md·권한 안내·훅은 남는다
+const CODEX_LEAN = ["apps", "plugins", "multi_agent", "image_generation", "browser_use", "computer_use", "goals", "tool_suggest"]
+  .flatMap((f) => ["--disable", f]);
+// 설치된 codex가 모르는 기능 이름이나 --disable 자체를 거부하면 모델 실행 전에 이 오류로 끝난다
+const CODEX_LEAN_ERROR = /Unknown feature flag|unexpected argument '--disable'/;
 // 참가 Claude의 하네스 문맥을 줄인다: 사용자 MCP·스킬·user/local 설정(훅·CLAUDE.md 등)을 싣지 않는다
 const CLAUDE_LEAN = ["--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "project"];
 const CLAUDE_MODEL = "claude-opus-5-5";   // spec의 claude_model이 없을 때. user 설정을 안 읽으므로 모델을 직접 정한다
@@ -41,6 +47,7 @@ const TIMEOUT_SEC = 600;
 let WORKDIR = null;   // --workdir 지정 시 두 AI가 이 폴더의 파일을 읽기 전용으로 참조
 let RUN_DIR = null;   // 두 CLI의 작업 폴더: WORKDIR, 없으면 단계마다 만드는 빈 임시 폴더
 let MODEL = CLAUDE_MODEL;
+let codexLean = true;   // CODEX_LEAN이 거부되면 이 실행 동안 빼고 부른다
 const RETRIES = 2;
 const BACKOFF_SEC = [10, 30];   // 재시도마다 앞서 기다리는 초 (RETRIES만큼, 모델 용량 부족 같은 일시 오류 대비). dry-run에서는 기다리지 않는다
 
@@ -190,8 +197,14 @@ async function callCodex(prompt) {
   const out = path.join(os.tmpdir(), `discussion-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
   fs.writeFileSync(out, "");
   try {
-    const args = [...CODEX_CMD.slice(1), "--cd", RUN_DIR, "--output-last-message", out, "-"];
-    const r = await run(CODEX_CMD[0], args, prompt, null);
+    const args = () => [...CODEX_CMD.slice(1), ...(codexLean ? CODEX_LEAN : []), "--cd", RUN_DIR, "--output-last-message", out, "-"];
+    let r = await run(CODEX_CMD[0], args(), prompt, null);
+    // --disable 인자 오류일 때만 그 인자 없이 한 번 다시 부른다. 다른 실패는 ask의 재시도에 맡긴다
+    if (r.code !== 0 && codexLean && CODEX_LEAN_ERROR.test(r.stderr)) {
+      process.stderr.write(`  ! Codex가 --disable 인자를 받지 않아 빼고 다시 부릅니다: ${callError(r).message}\n`);
+      codexLean = false;
+      r = await run(CODEX_CMD[0], args(), prompt, null);
+    }
     if (r.code !== 0) throw callError(r);
     return { text: readText(out).trim(), usage: codexUsage(r.stdout) };
   } finally {
@@ -426,9 +439,20 @@ function addQuestions(st, qs, rnd) {
   return log ? `\n\n작성자 질문:\n${log}` : "";
 }
 
+// workdir가 있을 때의 파일 읽기 원칙은 두 AI에 같게 주고, 위치 찾기·줄 범위 읽기 방법만 각자의 도구로 적는다
+const READ_HOW = {
+  claude: "Grep으로 위치를 찾은 뒤 Read의 offset/limit으로 필요한 줄 범위부터 읽어라. ",
+  codex: "rg -n 등으로 위치를 찾은 뒤 필요한 줄 범위부터 읽어라. Windows에서는 Get-Content와 Select-Object -Skip/-First 등을 사용할 수 있다. ",
+};
+
 function header(st, who) {
   const tools = st.workdir
-    ? "작업 폴더의 파일은 읽기 도구로 자유롭게 참조하되, 어떤 파일도 수정·생성하지 마라. 근거로 쓴 파일은 경로를 밝혀라. "
+    ? "이 작업은 코드를 수정하지 않는 토의다. 제공된 참조 자료로 충분하면 추가 파일 읽기를 생략하라. "
+      + "부족하면 확인할 사실을 정하고 " + READ_HOW[who]
+      + "위치 확인 없이 파일을 통째로 읽지 말고, 큰 파일은 필요한 범위로 나누어 확인하라. "
+      + "이미 제공되거나 확인한 동일 내용을 불필요하게 다시 읽지 마라. "
+      + "판단에 필요한 문맥이 부족하면 인접 범위를 추가 확인하되 고정된 줄 수 상한은 두지 않는다. "
+      + "근거로 사용한 파일의 경로와 줄 범위를 밝혀라. 파일은 수정하거나 생성하지 마라. "
     : "도구나 파일을 쓰지 마라. ";
   let s = `너는 ${NAMES[who]}이다. 다른 AI인 ${NAMES[OTHER[who]]}와 아래 주제를 함께 토의해 결론을 찾는다. `
     + `${tools}최종 출력에는 응답만 내라. 한국어로 답하라.\n\n[주제]\n${st.topic}\n`;
@@ -440,6 +464,9 @@ function header(st, who) {
   if (st.context) s += `\n[참조 자료]\n${st.context}\n`;
   return s;
 }
+
+// 최종 검토 성격의 프롬프트에서 토의와 무관한 스킬(코드 리뷰 등)을 읽지 않도록 작업 성격을 밝힌다. workdir가 있으면 header에 이미 있다
+const NO_CODE = (st) => (st.workdir ? "" : "이 작업은 코드를 수정하지 않는 토의다. ");
 
 const lastBy = (p, who) => [...p.history].reverse().find((h) => h.who === who) ?? null;
 
@@ -737,7 +764,8 @@ async function stepRevise(st, d) {
 async function stepClean(st, d) {
   // 합의 뒤 작성자가 토의 경과 표현만 뺀 정리본을 만든다. 내용이 바뀌지 않는 정리라 검토자 재확인은 하지 않는다
   const x = st.author;
-  const prompt = header(st, x) + "\n[정리본 작성]\n토의가 합의로 끝났다. 아래 합의된 최종 초안을 그대로 쓸 수 있는 문서로 정리하라.\n"
+  const prompt = header(st, x) + "\n[정리본 작성]\n" + NO_CODE(st)
+    + "토의가 합의로 끝났다. 아래 합의된 최종 초안을 그대로 쓸 수 있는 문서로 정리하라.\n"
     + "- 결론·수치·범위와 판단 근거 문장은 바꾸지 마라. 내용을 더하거나 빼지 마라.\n"
     + "- 토의 경과 표현만 뺀다: 누가 제안·채택했는지(예: 'Codex 안을 채택'), 몇 라운드·어느 지적(P번호)에 따라 바뀌었는지, "
     + "취소선으로 남긴 옛 문안.\n- 응답에는 정리된 문서 본문만 써라.\n\n"
@@ -814,8 +842,16 @@ function printStatus(d, st) {
 async function runPending(d, st, show = true) {
   WORKDIR = st.workdir;
   MODEL = st.claude_model ?? CLAUDE_MODEL;   // 0.6.x 이전 state에는 없다
-  // workdir가 없으면 빈 폴더에서 실행해 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 한다
-  const tmp = WORKDIR ? null : fs.mkdtempSync(path.join(os.tmpdir(), "ai-discussion-"));
+  // workdir가 없으면 빈 폴더에서 실행해 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 한다.
+  // fixed_empty_dir(측정 실험용)면 토의마다 같은 경로를 단계마다 비운 채로 다시 만든다(첫 요청 접두부가 단계 사이에 같아지게)
+  let tmp = null;
+  if (!WORKDIR && st.fixed_empty_dir) {
+    tmp = path.join(os.tmpdir(), `ai-discussion-${path.basename(d)}`);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.mkdirSync(tmp);
+  } else if (!WORKDIR) {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ai-discussion-"));
+  }
   RUN_DIR = WORKDIR || tmp;
   const step = st.pending_step;
   const [steps, stepKo, showFn] = MODES[st.mode];
@@ -1494,7 +1530,8 @@ async function jstepRound(st, d) {
 
 async function jstepFinal(st, d) {
   const v = st.final.version;
-  const prompt = Object.fromEntries(WHO.map((w) => [w, header(st, w) + "\n[최종안 검토]\n진행자가 토의 결과로 최종안을 조립했다. "
+  const prompt = Object.fromEntries(WHO.map((w) => [w, header(st, w) + "\n[최종안 검토]\n" + NO_CODE(st)
+    + "진행자가 토의 결과로 최종안을 조립했다. "
     + "진행자는 조립만 하고 새 결론을 더하지 않아야 한다.\n"
     + `\n[합의점과 확정된 결론]\n${concludedText(st)}\n\n[전체 쟁점표]\n${tableText(st)}\n`
     + `\n[최종안 v${v}]\n${st.final.draft}\n\n`
@@ -2082,6 +2119,8 @@ async function cmdStart(a) {
   const via = spec.via ?? null;
   const reviewR1 = spec.review_r1 ?? "full";
   if (!["full", "criteria"].includes(reviewR1)) die(`spec의 review_r1은 "full" 또는 "criteria"여야 합니다`);
+  const fixedDir = spec.fixed_empty_dir ?? false;
+  if (typeof fixedDir !== "boolean") die("spec의 fixed_empty_dir은 true 또는 false여야 합니다");
   const files = spec.context ?? [];
   const context = files.map((f) => `--- ${f} ---\n${readText(f)}`).join("\n\n");
   let workdir = spec.workdir ?? null;
@@ -2110,6 +2149,7 @@ async function cmdStart(a) {
   const claudeModel = spec.claude_model ?? CLAUDE_MODEL;
   const meta = `- 참가 Claude 모델: ${claudeModel}\n` + (files.length ? `- 참조 파일: ${files.join(", ")}\n` : "")
     + (workdir ? `- 작업 폴더: ${workdir}\n` : "")
+    + (fixedDir && !workdir ? "- 고정 빈 폴더: 사용 (측정 실험)\n" : "")
     + (a.dry_run ? "- dry-run: " + a.scenario + "\n" : "");
   let st;
   if (mode === "manual") {
@@ -2125,6 +2165,7 @@ async function cmdStart(a) {
       next_id: { I: 1, A: 1, S: 1, N: 1, M: 1, Q: reqs.length + 1 },
       missing_issues: [], proposals: [], note_all: null,
       final: { version: 0, draft: null, reviews: {} }, result: null,
+      ...(fixedDir ? { fixed_empty_dir: true } : {}),
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 수동 모드\n- 시작: ${clock(now)}\n` + meta);
@@ -2140,6 +2181,7 @@ async function cmdStart(a) {
       points: {}, next_point: 1, result: null, fail_reason: "",
       clean_final: spec.clean_final ?? true,   // 합의 뒤 토의 경과 표현을 뺀 정리본을 만든다
       review_r1: reviewR1,
+      ...(fixedDir ? { fixed_empty_dir: true } : {}),
     };
     save(d, st);
     appendLog(d, `# ${topic}\n\n- 모드: 자동 모드\n- 시작: ${clock(now)}\n`

@@ -14,7 +14,12 @@
 - 모델은 spec의 `claude_model`, 없으면 스크립트의 `CLAUDE_MODEL`이다. user 설정을 읽지 않으므로 직접 정한다. state와 log.md 머리에 남긴다.
 - 도구: workdir가 있으면 `--tools "Read,Glob,Grep"`, 없으면 `--tools ""`(도구 정의를 싣지 않는다).
 - Codex는 사용자 설정을 그대로 쓴다(`--ignore-user-config`·`--ignore-rules`를 쓰지 않는다. config.toml의 developer_instructions 유지).
+- Codex는 토의에 쓰지 않는 기능을 끄고 부른다: `--disable apps --disable plugins --disable multi_agent --disable image_generation --disable browser_use --disable computer_use --disable goals --disable tool_suggest`. 고정 문맥이 약 16.8k에서 12.8k로 준다. 안전 규칙(developer_instructions)·사용자 AGENTS.md·권한 안내·훅은 남는다.
+  - 설치된 codex가 모르는 기능 이름이나 `--disable` 자체를 거부해 모델 실행 전에 인자 오류(`Unknown feature flag`, `unexpected argument '--disable'`)로 끝나면, 그 실행 동안은 `--disable` 없이 한 번 다시 부른다. 일반 실행 오류나 응답 실패는 이 경로를 타지 않고 [호출 실패](#호출-실패)의 재시도를 따른다.
+- workdir가 있을 때 두 AI의 header에 같은 파일 읽기 원칙을 준다: 코드를 수정하지 않는 토의임, 참조 자료로 충분하면 읽지 않음, 부족하면 확인할 사실을 정하고 위치를 찾은 뒤 필요한 줄 범위부터 읽음, 통째 읽기·재읽기 금지, 문맥이 부족하면 인접 범위를 더 확인(고정 상한 없음), 근거의 경로·줄 범위 명시, 파일 수정·생성 금지. 위치 찾기·줄 범위 읽기 방법만 참가자별로 다르다(Codex: `rg -n`, `Get-Content`와 `Select-Object -Skip/-First`. Claude: Grep으로 위치 확인 후 Read의 offset/limit).
+- workdir가 없을 때 최종 검토 성격의 프롬프트(수동 모드 최종안 검토, 자동 모드 정리본)에는 "이 작업은 코드를 수정하지 않는 토의다"를 밝혀 토의와 무관한 스킬 읽기를 줄인다. workdir가 있으면 header에 같은 문장이 있다. 스킬을 무시하라는 지시는 넣지 않는다.
 - 작업 폴더: workdir가 있으면 그 폴더, 없으면 단계마다 빈 임시 폴더를 만들어 두 CLI를 거기서 실행하고 단계가 끝나면 지운다. 진행자 프로젝트의 CLAUDE.md·AGENTS.md가 실리지 않게 하기 위해서다.
+  - 측정 실험용으로 spec에 `"fixed_empty_dir": true`를 주면 임시 폴더 경로를 토의마다 하나(`<임시 폴더>/ai-discussion-<토의 이름>`)로 고정한다. 단계마다 비운 채로 다시 만들고 단계가 끝나면 지우므로 늘 비어 있다. 첫 요청의 캐시 적중이 높아지는지 비교하기 위한 것이며 기본은 끈다.
 - 스크립트는 절차만 처리한다. 근거의 질이나 주장의 반복 여부 같은 의미 판단은 하지 않는다.
 - 진행자는 AI 응답을 원문 그대로 보여 준다. 요약이나 평가는 하지 않는다.
 
