@@ -2258,7 +2258,7 @@ const MODE_KO = { auto: "자동 모드", manual: "수동 모드", compare: "비�
 const OLD_MODES = { consensus: "auto", judge: "manual" };
 const SPEC_EXAMPLE = `spec 예:
   {"mode": "manual", "name": "짧은이름", "topic": "...", "background": "...",
-   "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 5}
+   "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 6}
   비교 모드: {"mode": "compare", "name": "짧은이름", "topic": "첫 질문", "background": "...", "context": [], "workdir": null}`;
 
 function checkMode(a) {
@@ -2331,7 +2331,7 @@ async function cmdStart(a) {
       id: name, mode: "manual", via, topic, background: spec.background ?? "",
       requirements: reqs.map((t, i) => ({ id: `Q${i + 1}`, text: t, round: 0 })),
       context_files: files, context, workdir, claude_model: claudeModel,
-      max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 5))),   // R1, R2 포함
+      max_rounds: Math.max(3, Math.trunc(Number(spec.max_rounds ?? 6))),   // R1, R2 포함
       dry_run: a.dry_run, scenario: a.scenario,
       status: "running", pending_step: "r1", halt_reason: null,
       phase: "draft", round: 0, r1: {}, items: {},
