@@ -968,7 +968,7 @@ const ITEM_KO = {
 };
 const ONE_SIDED = ["agree", "disagree", "insufficient", "irrelevant"];
 const UNRESOLVED = ["open", "stall_candidate", "wording_conflict"];
-const CHECKS = ["agreements", "user_decisions", "unresolved_listed", "no_new_conclusions"];
+const CHECKS = ["agreements", "user_decisions", "unresolved_listed", "requirements", "no_new_conclusions"];
 const PHASE_CMDS = {
   draft: ["edit", "next", "req", "end"],
   baseline: ["edit", "pick-wording", "next", "note", "req", "exclude", "final", "end"],
@@ -1011,7 +1011,8 @@ const R2_JSON = `\`\`\`json
 
 const FINAL_JSON = `\`\`\`json
 {"checks": {"agreements": "ok | problem", "user_decisions": "ok | problem",
-            "unresolved_listed": "ok | problem", "no_new_conclusions": "ok | problem"},
+            "unresolved_listed": "ok | problem", "requirements": "ok | problem",
+            "no_new_conclusions": "ok | problem"},
  "points": [{"type": "wording | assembly | substance", "item": "I3", "problem": "...", "suggestion": "..."}]}
 \`\`\`
 `;
@@ -1048,10 +1049,25 @@ function newItem(kind, text, origin, owner = null) {
     positions: {}, last_rebuttal: {},
     keep_streak: { claude: 0, codex: 0 }, missing: { claude: 0, codex: 0 },
     stall_reason: null, user_note: null, resolution: null, reason: null,
-    notes: {}, converge: null,
+    notes: {}, converge: null, reqs: [],
   };
   if (owner) it.owner = owner;
   return it;
+}
+
+function parseReqs(st, v, where) {
+  // 항목에 다는 요구사항 태그(Q번호 목록). 있는 요구사항만 받는다
+  const ids = new Set(st.requirements.map((r) => r.id));
+  if (!Array.isArray(v) || !v.length || v.some((q) => !ids.has(q))) {
+    throw new FormatError(`${where}: reqs에는 요구사항 ID(${[...ids].join(", ") || "없음"}) 목록을 적어라`);
+  }
+  return [...new Set(v)];
+}
+
+function reqCoverage(st) {
+  // 요구사항마다 태그로 이어진 항목 (제외된 항목은 근거가 아니다. 예전 상태 파일에는 reqs가 없다)
+  return st.requirements.map((r) => [r, Object.entries(st.items)
+    .filter(([, it]) => it.status !== "excluded" && (it.reqs ?? []).includes(r.id)).map(([iid]) => iid)]);
 }
 
 function addItem(st, prefix, item) {
@@ -1181,7 +1197,7 @@ function tableText(st) {
   for (const [iid, it] of Object.entries(st.items)) {
     const s = it.status;
     const kind = KIND_KO[it.kind] + (it.kind === "one_sided" ? `(${NAMES[it.owner]})` : "");
-    out.push(`- ${iid} [${kind} · ${ITEM_KO[s]}] ${it.text}`);
+    out.push(`- ${iid} [${kind} · ${ITEM_KO[s]}] ${it.text}` + (it.reqs?.length ? ` (요구사항: ${it.reqs.join(", ")})` : ""));
     const r = it.resolution;
     if (r) {
       out.push(`    결론 (${howText(r)}, R${r.round}): ${r.text}`);
@@ -1546,17 +1562,22 @@ async function jstepFinal(st, d) {
     + "진행자가 토의 결과로 최종안을 조립했다. "
     + "진행자는 조립만 하고 새 결론을 더하지 않아야 한다.\n"
     + `\n[합의점과 확정된 결론]\n${concludedText(st)}\n\n[전체 쟁점표]\n${tableText(st)}\n`
+    + `\n[요구사항별 근거 항목]\n${reqCoverageText(st)}\n`
     + `\n[최종안 v${v}]\n${st.final.draft}\n\n`
-    + "다음 네 가지를 확인하라.\n"
-    + "- agreements: 합의된 항목이 그대로 반영됐는가\n"
-    + "- user_decisions: 사용자 판정이 그대로 반영됐는가\n"
+    + "판단 기준은 위 [합의점과 확정된 결론], [전체 쟁점표], [요구사항별 근거 항목]뿐이다. "
+    + "기록에 없는 내용을 너의 의견으로 채우라고 요구하지 마라. 다음 다섯 가지를 확인하라.\n"
+    + "- agreements: 합의된 항목의 결론·단서가 기록 문장대로 반영됐는가\n"
+    + "- user_decisions: 사용자 판정이 기록 문장대로 반영됐는가\n"
     + "- unresolved_listed: 보류·미확인 항목이 미해결·미확인으로 명시됐는가\n"
+    + "- requirements: 요구사항마다 근거 항목의 결론이 최종안에 옮겨졌는가. "
+    + "근거 항목이 없는 요구사항은 진행자가 답을 새로 쓰지 않고 '토의에서 다루지 않음'으로 명시했는가\n"
     + "- no_new_conclusions: 토의에 없던 결론이 추가되지 않았는가\n"
     + "문제마다 points에 적고 type을 아래 셋 중 하나로 분류하라. "
-    + "item에는 관련 항목 ID를 적는다. 문제가 없으면 points를 빈 목록으로 둔다.\n"
+    + "item에는 관련 항목 ID(요구사항 문제면 Q번호)를 적는다. 문제가 없으면 points를 빈 목록으로 둔다.\n"
     + "- wording(표현): 뜻은 토의 기록과 맞고 문장만 고치면 된다\n"
     + "- assembly(조립): 최종안이 토의 기록과 다르게 옮기거나, 항목을 묶어 뜻을 바꾸거나, 결론을 더했다\n"
-    + "- substance(실질): 최종안은 기록대로지만 토의 결론 자체에 문제가 있어 쟁점을 다시 논의해야 한다\n"
+    + "- substance(실질): 최종안은 기록대로지만 토의 결론 자체에 문제가 있어 쟁점을 다시 논의해야 한다. "
+    + "결론이 요구사항과 정면으로 어긋날 때가 여기에 든다. 요구사항을 더 잘 채울 수 있다는 의견만으로는 지적하지 않는다\n"
     + JSON_TAIL + FINAL_JSON]));
 
   const make = (who, strict) => (body, data, err = null) => {
@@ -1623,6 +1644,19 @@ function manualBlockers(st) {
   return out;
 }
 
+function reqCoverageText(st) {
+  return reqCoverage(st).map(([r, ids]) => `- ${r.id}: ${r.text} → ${ids.length ? ids.join(", ") : "근거 항목 없음"}`)
+    .join("\n") || "(요구사항 없음)";
+}
+
+function finalTodos(st) {
+  // final-draft 전에 진행자가 처리할 것. 막지는 않는다 (논의 중 쟁점의 수렴 신호는 next 전에 할 일에 나온다)
+  const out = Object.entries(st.items).filter(([, it]) => it.converge && it.status === "deferred")
+    .map(([iid, it]) => `${iid} 보류됐지만 수렴 신호(${it.converge.signals.join(", ")})가 있습니다. 진행자가 판단합니다 (edit op converge)`);
+  return out.concat(reqCoverage(st).filter(([, ids]) => !ids.length)
+    .map(([r]) => `${r.id} 요구사항에 이어진 항목이 없습니다 (다룬 항목이 있으면 edit op tag, 없으면 사용자에게 알림)`));
+}
+
 function printManual(d, st) {
   const name = path.basename(d);
   print(`토의: ${name}  (수동 모드 · 라운드 ${st.round}/${st.max_rounds} · ${PHASE_KO[st.phase]} 단계)`);
@@ -1660,7 +1694,7 @@ function printManual(d, st) {
         print(`  ${NAMES[w]} 검토 (v${r.version}): 형식 오류로 결과를 읽지 못함 — ${r.error}`);
         continue;
       }
-      const bad = CHECKS.filter((k) => r.checks[k] !== "ok");
+      const bad = CHECKS.filter((k) => has(r.checks, k) && r.checks[k] !== "ok");   // 예전 검토에는 requirements가 없다
       print(`  ${NAMES[w]} 검토 (v${r.version}): ` + (bad.length ? `문제 ${bad.join(", ")}` : "확인 항목 모두 ok"));
       for (const p of r.points) {
         print(`    - [${POINT_KO[p.type]}] ${p.item || "-"}: ${p.problem}` + (p.suggestion ? `\n      제안: ${p.suggestion}` : ""));
@@ -1675,6 +1709,8 @@ function printManual(d, st) {
   const cmds = PHASE_CMDS[st.phase];
   const blockers = cmds.includes("next") ? manualBlockers(st) : [];
   if (blockers.length) process.stdout.write("\nnext 전에 할 일:\n" + blockers.map((b) => `  - ${b}\n`).join(""));
+  const todos = cmds.includes("final-draft") ? finalTodos(st) : [];
+  if (todos.length) process.stdout.write("\n최종안 전에 할 일:\n" + todos.map((b) => `  - ${b}\n`).join(""));
   print("\n쓸 수 있는 명령:");
   for (const c of cmds) {
     if (c === "next" && blockers.length) continue;
@@ -1799,7 +1835,9 @@ function editTable(st, data) {
         owner = r.owner;
         if (!has(NAMES, owner)) throw new FormatError(`${key}[${i}]: owner는 claude 또는 codex여야 합니다`);
       }
-      addItem(st, prefix, newItem(kind, text, "moderator", owner));
+      const it = newItem(kind, text, "moderator", owner);
+      if (has(r, "reqs")) it.reqs = parseReqs(st, r.reqs, `${key}[${i}]`);
+      addItem(st, prefix, it);
     });
   }
   if (isEmpty(st.items)) throw new FormatError("쟁점표에 항목이 하나도 없습니다");
@@ -1807,9 +1845,9 @@ function editTable(st, data) {
 
 function editOps(st, ops) {
   const allowed = {
-    baseline: ["revise", "add"],
-    discussion: ["merge_proposals", "flag_missing", "converge"],
-    final: ["converge"],   // 마지막 라운드의 수렴 신호는 보류된 뒤에 판단한다
+    baseline: ["revise", "add", "tag"],
+    discussion: ["merge_proposals", "flag_missing", "converge", "add", "tag"],
+    final: ["converge", "add", "tag"],   // 마지막 라운드의 수렴 신호는 보류된 뒤에 판단한다
   }[st.phase];
   ops.forEach((op, i) => {
     const where = `ops[${i}]`;
@@ -1827,12 +1865,30 @@ function editOps(st, ops) {
     } else if (op.op === "add") {
       const src = isStr(op.source) ? [op.source] : op.source;
       const ms = Object.fromEntries(st.missing_issues.map((m) => [m.id, m]));
-      if (!Array.isArray(src) || !src.length || src.some((s) => !has(ms, s) || ms[s].handled)) {
-        throw new FormatError(`${where}: source에는 반영하지 않은 빠진 쟁점 제안 ID(M번호)를 적어라`);
+      const qs = new Set(st.requirements.map((r) => r.id));
+      if (Array.isArray(src) && src.length && src.every((s) => qs.has(s))) {
+        // 근거 항목이 없는 요구사항을 쟁점으로 만든다 (사용자 승인 뒤). 최종 단계면 공방으로 돌아간다
+        const it = newItem("issue", needStr(op, "text", where), "moderator");
+        it.reqs = [...new Set(src)];
+        addItem(st, "I", it);
+        if (st.phase === "final") {
+          resetFinal(st);
+          [st.phase, st.pending_step] = ["discussion", "round"];
+          if (st.round >= st.max_rounds) print("최대 라운드를 넘겨 한 라운드 더 진행합니다. 그 라운드가 끝나면 남은 쟁점은 다시 보류됩니다.\n");
+        }
+        return;
+      }
+      if (st.phase !== "baseline" || !Array.isArray(src) || !src.length || src.some((s) => !has(ms, s) || ms[s].handled)) {
+        throw new FormatError(`${where}: source에는 반영하지 않은 빠진 쟁점 제안 ID(M번호, 쟁점표 확정 단계만) 또는 요구사항 ID(Q번호)를 적어라`);
       }
       const text = needStr(op, "text", where);
       const iid = addItem(st, "I", newItem("issue", text, originOf(src.map((s) => ms[s].by))));
       for (const s of src) ms[s].handled = iid;
+    } else if (op.op === "tag") {
+      // 항목이 어느 요구사항에 답하는지 잇는다. 결론은 바꾸지 않는다
+      const it = own(st.items, op.id);
+      if (!it) throw new FormatError(`${where}: 없는 항목입니다 (${op.id})`);
+      it.reqs = [...new Set([...(it.reqs ?? []), ...parseReqs(st, op.reqs, where)])];
     } else if (op.op === "merge_proposals") {
       const props = Object.fromEntries(st.proposals.map((p) => [p.id, p]));
       const ids = op.ids;
@@ -1967,7 +2023,8 @@ function cmdDefer(a) {
 
 function cmdExclude(a) {
   const [d, st] = openJudge(a);
-  const it = getItem(st, a.item, ["open", "stall_candidate", "deferred", "wording_conflict"]);
+  // 미확인도 받는다: 쟁점표 확정 때 다른 쟁점과 겹치는 한쪽 항목을 중복 정리로 뺄 수 있어야 한다
+  const it = getItem(st, a.item, ["open", "stall_candidate", "deferred", "unverified", "wording_conflict"]);
   [it.status, it.reason] = ["excluded", a.reason ? `사용자 제외: ${a.reason}` : "사용자 제외"];
   commit(d, st, `\n## 사용자 판정 (R${st.round} 뒤)\n\n- ${a.item} 제외` + (a.reason ? `: ${a.reason}` : "") + "\n");
 }
@@ -2033,7 +2090,7 @@ async function cmdFinal(a) {
 function finalSkeleton(st) {
   // 최종안 뼈대. 항목 상태별로 나누고 출처 ID를 붙인다. 진행자는 결론 절과 문장 연결만 채운다
   let s = `# ${st.topic} — 최종안\n\n- 주제: ${st.topic}\n`
-    + st.requirements.map((r) => `- 요구사항 ${r.id}: ${r.text}\n`).join("")
+    + reqCoverage(st).map(([r, ids]) => `- 요구사항 ${r.id}: ${r.text} (근거 항목: ${ids.join(", ") || "없음 — 토의에서 다루지 않음"})\n`).join("")
     + `- 진행: 라운드 ${st.round}/${st.max_rounds}까지\n\n## 결론\n\n`
     + "<!-- 진행자: 아래 항목에서 ID를 붙여 옮긴다. 새 결론이나 항목을 묶는 분류 소제목을 쓰지 않는다 -->\n";
   const pending = ["deferred", ...UNRESOLVED];
