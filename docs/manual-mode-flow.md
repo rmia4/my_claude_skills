@@ -1,7 +1,7 @@
 # 수동 모드: 쟁점 중심 토의 흐름
 
-- 상태: 구현·dry-run 검증 완료, 스킬 작성과 실제 CLI 확인은 남음 (2026-10-26)
-- 범위: 수동 모드만. 자동 모드는 [auto-mode-flow.md](auto-mode-flow.md)를 따른다.
+- 상태: 구현 완료 (1.0.0, 2026-10-29). 스킬 작성과 실제 CLI 확인도 마쳤다
+- 범위: 수동 모드만. 자동 모드는 [auto-mode-flow.md](auto-mode-flow.md), 비교 모드는 [compare-mode-flow.md](compare-mode-flow.md)를 따른다.
 - 공통 규칙(파일 구성, 응답 파싱, 재시도, 호출 실패, 저장·재개, dry-run)은 [common.md](common.md)를 따른다.
 
 ## 목표
@@ -126,10 +126,10 @@
 
 ```json
 {
-  "id": "20261026-1030_주제",
+  "id": "20261026-1030_주제", "mode": "manual",
   "topic": "...", "background": "...",
   "requirements": [{"id": "Q1", "text": "예산 월 10만 원 이하", "round": 0}],
-  "context_files": [], "workdir": null, "max_rounds": 5,
+  "context_files": [], "workdir": null, "claude_model": null, "max_rounds": 5,
   "phase": "discussion", "round": 3,
   "items": {
     "I1": {
@@ -155,7 +155,7 @@
 }
 ```
 
-- `phase`: `draft` → `r2` → `baseline` → `discussion` → `final` → `done`
+- `phase`: `draft` → `baseline` → `discussion` → `final` → `done` (R2는 `draft`에서 `pending_step: "r2"`로 실행한다. 아래 "구현하며 정한 것")
 - `kind`: `issue`(쟁점) / `agree_candidate`(합의 후보) / `one_sided`(한쪽만 다룬 항목, `owner`에 꺼낸 쪽)
 - `resolution`: `{"by": "agreement | withdraw | user", "text": "...", "round": n}`
 
@@ -307,7 +307,7 @@ JSON 블록의 위치와 파싱은 [common.md](common.md)를 따른다.
 3. 스킬 작성 — 완료 (2026-10-26). `ai-discussion` 플러그인의 `start` 스킬(`skills/start/SKILL.md`, `/ai-discussion:start`)로 만들었다. 스크립트는 `scripts/discussion.mjs`이고, 스킬은 `${CLAUDE_PLUGIN_ROOT}`로 스크립트를 부른다.
 4. 스킬 분리 — 완료 (2026-10-26, 0.3.0). 사용자 판정은 `judge` 스킬(`/ai-discussion:judge`), 자동 합의는 `consensus` 스킬로 나누고, `start`는 모드를 정해 두 스킬로 넘기는 입구로 남겼다. 공용 규칙은 [common.md](common.md) "모드 확인"을 따른다.
 5. 모드 이름 변경 — 완료 (2026-10-27, 0.5.0). 판정 모드를 수동 모드(`manual`, `/ai-discussion:manual`), 합의 모드를 자동 모드(`auto`, `/ai-discussion:auto`)로 바꿨다. 스킬 폴더, 설계 문서 파일명, state의 `mode` 값도 바꿨다. 쟁점 판정 명령 `judge`와 쟁점 상태 "사용자 판정"은 모드 이름이 아니므로 그대로 둔다.
-4. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 아직 실제 CLI로 돌려 보지 않았다.
+6. 실제 CLI 확인 — 탕수육 토의로 R1~최종안까지 확인 (claude 2.1.300, codex-cli 0.163.0). '토의' 전환과 그 뒤 개선 사항은 2026-10-28 실제 CLI로 확인했다(Codex절감 토의는 최종 확정까지, 토큰절감 토의는 판정 없이 종료).
 
 ## 구현하며 정한 것 (2026-10-26)
 

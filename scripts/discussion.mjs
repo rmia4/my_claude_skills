@@ -147,8 +147,10 @@ function callError(r) {
 
 // 호출 결과는 { text, usage }. usage는 두 CLI를 같은 뜻으로 맞춘 토큰 수다(input은 캐시 읽기·쓰기를 포함한 전체 입력)
 async function callClaude(prompt) {
+  // 웹 검색은 늘 켠다(Codex는 기본으로 web_search가 있다). workdir가 있으면 읽기 도구를 더한다
+  const tools = (WORKDIR ? "Read,Glob,Grep," : "") + "WebSearch,WebFetch";
   const args = [...CLAUDE_CMD.slice(1), ...CLAUDE_LEAN, ...(MODEL ? ["--model", MODEL] : []),
-    ...(WORKDIR ? ["--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep"] : ["--tools", ""])];
+    "--tools", tools, "--allowedTools", tools];
   const r = await run(CLAUDE_CMD[0], args, prompt, RUN_DIR);
   let j = null;
   try {
@@ -461,9 +463,10 @@ function header(st, who) {
       + "이미 제공되거나 확인한 동일 내용을 불필요하게 다시 읽지 마라. "
       + "판단에 필요한 문맥이 부족하면 인접 범위를 추가 확인하되 고정된 줄 수 상한은 두지 않는다. "
       + "근거로 사용한 파일의 경로와 줄 범위를 밝혀라. 파일은 수정하거나 생성하지 마라. "
-    : "도구나 파일을 쓰지 마라. ";
+    : "파일을 읽거나 만들지 말고 명령도 실행하지 마라. ";
+  const web = "최신 정보나 외부 사실 확인이 필요하면 웹 검색을 써도 된다. 웹에서 가져온 사실은 출처 URL을 밝혀라. ";
   let s = (compare ? "아래 질문에 답하라. " : `너는 ${NAMES[who]}이다. 다른 AI인 ${NAMES[OTHER[who]]}와 아래 주제를 함께 토의해 결론을 찾는다. `)
-    + `${tools}최종 출력에는 응답만 내라. 한국어로 답하라.\n` + (compare ? "" : `\n[주제]\n${st.topic}\n`);
+    + `${tools}${web}최종 출력에는 응답만 내라. 한국어로 답하라.\n` + (compare ? "" : `\n[주제]\n${st.topic}\n`);
   if (st.background) s += `\n[배경]\n${st.background}\n`;
   if (st.requirements.length) {
     // 수동 모드는 요구사항을 {"id", "text", "round"}로 저장한다

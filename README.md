@@ -62,6 +62,7 @@ claude plugin install ai-discussion@my-claude-skills
 - **기록 위치:** 토의 기록은 Claude Code 세션이 열린 폴더의 `discussions/<id>/`에 쌓입니다(state.json, log.md, raw/, final.md). 폴더를 따로 고를 수 없어서, 다른 폴더에서 세션을 열면 예전 토의를 `last`·`show`로 찾지 못합니다. `discussions/`를 처음 만들 때 안에 `*` 한 줄짜리 `.gitignore`를 같이 만들어 git에서 제외합니다(이미 있으면 그대로 둡니다). 이미 커밋된 기록은 `git rm -r --cached discussions`로 따로 빼야 합니다.
 - **두 AI는 대화 맥락을 모릅니다:** 매 단계 새 세션으로 불립니다. 두 AI가 아는 것은 진행자가 spec에 적은 주제·배경·요구사항과 `context` 파일뿐입니다.
 - **파일 접근:** spec에 `workdir`를 주면 두 AI가 그 폴더를 읽기 전용으로 참조합니다. Claude는 Read·Glob·Grep만, Codex는 read-only sandbox입니다. 두 AI 모두 파일을 고치지 않습니다.
+- **웹 검색:** 두 AI 모두 필요하면 웹 검색을 씁니다(Claude는 WebSearch·WebFetch, Codex는 web_search). 웹에서 가져온 사실에는 출처 URL을 붙이게 합니다.
 - **외부 전송과 사용량:** 주제, 배경, `context` 파일 내용, `workdir`에서 읽은 파일은 Anthropic과 OpenAI로 전송됩니다. 사용량도 각 CLI에 로그인한 계정에서 나갑니다. 민감한 자료는 넣지 마세요.
 - **시간:** AI 단계 하나에 보통 1~3분 걸립니다. 호출 하나의 제한 시간은 10분이고, 실패하면 2번까지 다시 시도합니다. 그래도 실패하면 토의가 중단 상태가 되고, `next`로 같은 단계를 다시 실행할 수 있습니다.
 - **CLI 버전:** `claude -p`와 `codex exec`의 옵션에 맞춰 만들었습니다(확인한 버전: claude 2.1.311, codex-cli 0.163.0). CLI 옵션이 바뀌면 호출이 실패할 수 있습니다.

@@ -1,7 +1,7 @@
 # 자동 모드: 순차 토의 흐름
 
-- 상태: 계획 확정, 미구현 (2026-10-26, 같은 날 피드백 반영)
-- 범위: 자동 모드. 수동 모드는 [manual-mode-flow.md](manual-mode-flow.md)를 따른다.
+- 상태: 구현 완료 (1.0.0, 2026-10-29)
+- 범위: 자동 모드. 수동 모드는 [manual-mode-flow.md](manual-mode-flow.md), 비교 모드는 [compare-mode-flow.md](compare-mode-flow.md)를 따른다.
 - 공통 규칙(파일 구성, 응답 파싱, 재시도, 호출 실패, 저장·재개, dry-run)은 [common.md](common.md)를 따른다. 이 문서에는 이 모드에만 해당하는 규칙을 적는다.
 
 ## 방식

@@ -1,8 +1,8 @@
-# 공통 규칙 (두 모드 공용)
+# 공통 규칙 (세 모드 공용)
 
-- 상태: 계획 확정, 미구현 (2026-10-26)
+- 상태: 구현 완료 (1.0.0, 2026-10-29)
 - 적용: [manual-mode-flow.md](manual-mode-flow.md)(수동 모드), [auto-mode-flow.md](auto-mode-flow.md)(자동 모드), [compare-mode-flow.md](compare-mode-flow.md)(비교 모드)
-- 이 문서의 규칙은 두 모드에 똑같이 적용한다. 모드마다 다른 규칙은 각 모드 문서에만 적는다. 한 모드 문서의 규칙을 다른 모드에 가져다 쓰지 않는다.
+- 이 문서의 규칙은 세 모드에 똑같이 적용한다. 모드마다 다른 규칙은 각 모드 문서에만 적는다. 한 모드 문서의 규칙을 다른 모드에 가져다 쓰지 않는다.
 
 ## 원칙
 
@@ -12,7 +12,8 @@
 
 - 참가 Claude는 `--strict-mcp-config --disable-slash-commands --setting-sources project`로 부르고, 모델을 지정했으면 `--model <모델>`을 더한다. 사용자 MCP·스킬·user/local 설정(훅 등)을 싣지 않아 고정 문맥을 줄인다. 사용자 `~/.claude/CLAUDE.md`는 이 옵션으로 빠지지 않는다(`--bare`는 API 키 인증만 받아 쓰지 않는다).
 - 모델은 spec의 `claude_model`이다. 없으면 `--model`을 넘기지 않아 CLI 기본 모델을 쓴다. user 설정을 읽지 않으므로 `/model`이나 `~/.claude/settings.json`의 `model`은 따르지 않는다. state와 log.md 머리에 남긴다(지정하지 않았으면 "CLI 기본값").
-- 도구: workdir가 있으면 `--tools "Read,Glob,Grep"`, 없으면 `--tools ""`(도구 정의를 싣지 않는다).
+- 도구: workdir가 있으면 `--tools "Read,Glob,Grep,WebSearch,WebFetch"`, 없으면 `--tools "WebSearch,WebFetch"`. `--allowedTools`에도 같은 목록을 준다.
+- 웹 검색: 두 AI 모두 늘 쓸 수 있다. Claude는 위 WebSearch·WebFetch, Codex는 기본으로 켜진 web_search다(`--disable` 목록에 넣지 않는다). header에 "최신 정보나 외부 사실 확인이 필요하면 웹 검색을 써도 되고, 웹에서 가져온 사실은 출처 URL을 밝힌다"를 두 AI에 같게 준다. workdir가 없으면 header에서 파일 읽기·생성과 명령 실행만 금지한다.
 - Codex는 사용자 설정을 그대로 쓴다(`--ignore-user-config`·`--ignore-rules`를 쓰지 않는다. config.toml의 developer_instructions 유지).
 - Codex는 토의에 쓰지 않는 기능을 끄고 부른다: `--disable apps --disable plugins --disable multi_agent --disable image_generation --disable browser_use --disable computer_use --disable goals --disable tool_suggest`. 고정 문맥이 약 16.8k에서 12.8k로 준다. 안전 규칙(developer_instructions)·사용자 AGENTS.md·권한 안내·훅은 남는다.
   - 설치된 codex가 모르는 기능 이름이나 `--disable` 자체를 거부해 모델 실행 전에 인자 오류(`Unknown feature flag`, `unexpected argument '--disable'`)로 끝나면, 그 실행 동안은 `--disable` 없이 한 번 다시 부른다. 일반 실행 오류나 응답 실패는 이 경로를 타지 않고 [호출 실패](#호출-실패)의 재시도를 따른다.
@@ -31,7 +32,7 @@ discussions/20261026-1030_주제/
   ├ state.json        현재 상태 (스크립트만 씀)
   ├ log.md            사람이 읽는 전체 기록
   └ raw/              호출마다 AI 응답 원문 (시도별로 따로 저장)
-      ├ r1_claude.md, r1_codex.md
+      ├ r1_claude.md, r1_codex.md   ← 비교 모드는 t1_claude.md, t1_codex.md
       ├ r2_review_codex.md
       ├ r2_review_codex.try2.md     ← 재시도한 응답
       ├ usage.jsonl                 ← 호출마다 토큰 사용량 한 줄 (spec usage가 true일 때만)
