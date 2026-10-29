@@ -68,7 +68,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 - **수렴 신호**(상호 수용 / 양측 수정 / 남은 차이 없음)가 붙은 쟁점은 진행자가 판단한다. 판단하기 전에는 `next`가 막힌다.
   - 두 입장이 같은 결론이면: `{"op": "converge", "id", "decision": "agree", "text": "결론 문안", "reason": "판단 근거"}`. 결론 문안은 두 입장 문장 안에서만 쓰고 새 내용을 더하지 않는다.
   - 차이가 남았으면: `{"op": "converge", "id", "decision": "open", "reason": "남은 차이"}`
-  - 판단 결과를 사용자에게 알린다.
+  - 판단 결과를 사용자에게 알린다. 합의로 닫은 쟁점은 사용자가 원하면 `reopen`으로 다시 열 수 있다고 함께 알린다.
 - 응답했지만 상대 지적에 실제로 답하지 않았으면 `{"op": "flag_missing", "id", "who", "reason"}`을 쓴다.
 - 새 쟁점 제안(N번호)이 중복이면 `{"op": "merge_proposals", "ids": [...], "text"}`로 합친다.
 - 그다음 사용자에게 고를 것을 보인다: 다음 라운드 / 쟁점 판정 / 의견 / 교착 처리 / 새 쟁점 승인 / 최종안 / 종료.
@@ -85,6 +85,7 @@ description: Claude와 Codex가 한 주제를 쟁점별로 공방하고, 각 쟁
 | "남은 건 전부 Claude 쪽으로" | `judge-all last claude` |
 | "I4는 보류" / "I4는 빼" | `defer last I4` / `exclude last I4 "사유"` |
 | 교착 후보를 "더 해 봐" | `reopen last I2` 후 `next last` |
+| 합의로 닫힌 I1을 "다시 열어" (진행자 수렴 판단 포함) | `reopen last I1`, `note last I1 "사용자가 말한 이유"` 후 `next last`. 이유가 없으면 물어본다 |
 | "N1 추가해" / "N1은 빼" | `proposal last N1 accept` / `proposal last N1 reject` |
 | "최종안 써 줘" | 아래 4단계 |
 | "종료" | `end last` |

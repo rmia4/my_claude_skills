@@ -1998,17 +1998,18 @@ function cmdProposal(a) {
 
 function cmdReopen(a) {
   const [d, st] = openJudge(a);
-  const it = st.phase === "discussion"
-    ? getItem(st, a.item, ["stall_candidate", "deferred"])
-    : getItem(st, a.item, Object.keys(ITEM_KO).filter((s) => !["open", "wording_conflict"].includes(s)));
+  // 진행자 수렴 판단으로 닫힌 합의도 사용자가 다시 열 수 있도록 단계와 관계없이 같은 상태를 받는다
+  const it = getItem(st, a.item, Object.keys(ITEM_KO).filter((s) => !["open", "wording_conflict"].includes(s)));
+  // resolution을 지우므로 이전 상태와 결론을 로그에 남긴다
+  const prev = ITEM_KO[it.status] + (it.resolution ? ` · ${it.resolution.by}, 결론: ${it.resolution.text}` : "");
   Object.assign(it, {
-    kind: "issue", status: "open", stall_reason: null, resolution: null, reason: null,
+    kind: "issue", status: "open", stall_reason: null, resolution: null, reason: null, converge: null,
     keep_streak: { claude: 0, codex: 0 }, missing: { claude: 0, codex: 0 },
   });
   resetFinal(st);
   [st.phase, st.pending_step] = ["discussion", "round"];
   if (st.round >= st.max_rounds) print("최대 라운드를 넘겨 한 라운드 더 진행합니다. 그 라운드가 끝나면 남은 쟁점은 다시 보류됩니다.\n");
-  commit(d, st, `\n## 쟁점 재개 (R${st.round} 뒤)\n\n- ${a.item}\n`);
+  commit(d, st, `\n## 쟁점 재개 (R${st.round} 뒤)\n\n- ${a.item} (이전: ${prev})\n`);
 }
 
 async function cmdFinal(a) {
@@ -2392,7 +2393,7 @@ const COMMANDS = {
   exclude: { help: "쟁점 제외 (최종안에 넣지 않음)", fn: cmdExclude, args: [ID, ITEM, { name: "reason", optional: true, help: "사유 (로그에 남김)" }] },
   "pick-wording": { help: "표현 충돌 해결", fn: cmdPickWording, args: [ID, ITEM, WHO_ARG] },
   proposal: { help: "새 쟁점 제안 승인·거절", fn: cmdProposal, args: [ID, { name: "nid" }, { name: "decision", choices: ["accept", "reject"] }] },
-  reopen: { help: "교착·보류 쟁점 추가 공방, 또는 최종안 실질 지적 쟁점 재개", fn: cmdReopen, args: [ID, ITEM] },
+  reopen: { help: "닫히거나 멈춘 쟁점(합의·판정·교착 후보·보류 등)을 다시 공방으로", fn: cmdReopen, args: [ID, ITEM] },
   "final-draft": { help: "최종안 뼈대 만들기 (항목 상태별, 출처 ID 포함)", fn: cmdFinalDraft, args: [ID] },
   final: { help: "최종안 등록 후 두 AI 검토", fn: cmdFinal, args: [ID], opts: FILE_OPT("최종안 Markdown 파일") },
   "final-fix": { help: "최종안 표현 지적 반영 (재검토 없음)", fn: cmdFinalFix, args: [ID], opts: FILE_OPT("최종안 Markdown 파일") },
