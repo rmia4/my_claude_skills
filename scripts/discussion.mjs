@@ -62,6 +62,7 @@ const members = (st) => (st.mode === "codex" ? ["codex"] : WHO);   // Codex 단�
 
 // ── 기본 도구 ────────────────────────────────────────────────────────
 class FormatError extends Error {}
+class BodyError extends FormatError {}   // 본문이 반드시 있어야 하는데 비었다. 재시도에서 본문도 다시 받는다
 class Halt extends Error {}
 class Exit extends Error {   // 메시지를 stderr에 쓰고 종료 코드를 남기고 끝낸다
   constructor(message, code = 1) { super(message); this.code = code; }
@@ -361,11 +362,13 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     }
     return r.text;
   };
+  let needBody = false;
   const tryValidate = (body, data) => {
     try {
       return [validate(body, data), null];
     } catch (e) {
       if (!(e instanceof FormatError)) throw e;
+      needBody = e instanceof BodyError;
       return [undefined, e.message];
     }
   };
@@ -378,15 +381,20 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
     if (!e) return v;
     err = e;
   }
-  // 원래 프롬프트는 그대로 둬 첫 호출과 접두부가 같게(캐시) 하고, 직전 응답은 JSON 블록만 붙인다.
-  // 블록이 없으면 본문에서 JSON을 만들어야 하므로 응답 전체를 붙인다
-  const block = [...text.matchAll(JSON_BLOCK_RE)].at(-1);
-  const prev = block ? `[너의 직전 응답의 JSON 블록]\n${block[0]}` : `[너의 직전 응답]\n${text}`;
-  const retry = `${prompt}\n\n${prev}\n\n[형식 오류]\n${err}\n`
-    + "본문은 다시 쓰지 말고, 오류를 고친 ```json 블록 하나만 출력하라.";
-  [, data, err] = splitJson(await once(retry, 2), true);
+  if (needBody) {
+    // 본문이 비었으면 JSON만 고쳐서는 복구되지 않는다. 본문과 JSON을 모두 다시 받는다
+    [body, data, err] = splitJson(await once(`${prompt}\n\n[형식 오류]\n${err}\n본문과 JSON 블록을 모두 다시 써라.`, 2), needsJson);
+  } else {
+    // 원래 프롬프트는 그대로 둬 첫 호출과 접두부가 같게(캐시) 하고, 직전 응답은 JSON 블록만 붙인다.
+    // 블록이 없으면 본문에서 JSON을 만들어야 하므로 응답 전체를 붙인다
+    const block = [...text.matchAll(JSON_BLOCK_RE)].at(-1);
+    const prev = block ? `[너의 직전 응답의 JSON 블록]\n${block[0]}` : `[너의 직전 응답]\n${text}`;
+    const retry = `${prompt}\n\n${prev}\n\n[형식 오류]\n${err}\n`
+      + "본문은 다시 쓰지 말고, 오류를 고친 ```json 블록 하나만 출력하라.";
+    [, data, err] = splitJson(await once(retry, 2), true);   // 본문은 첫 응답의 것을 쓴다
+  }
   if (!err) {
-    const [v, e] = tryValidate(body, data);   // 본문은 첫 응답의 것을 쓴다
+    const [v, e] = tryValidate(body, data);
     if (!e) return v;
     err = e;
   }
@@ -399,18 +407,26 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
 const STEP_KO = { r1: "R1 독립 답변", draft: "통합 초안", review: "검토", revise: "수정", clean: "정리본" };
 const HOW_KO = { applied: "반영", modified: "고쳐 반영", withdrawn: "철회" };
 
-const REVIEW_JSON = `\`\`\`json
-{"points": [
-  {"id": null, "action": "new", "problem": "...", "grounds": "...", "criterion": "해당 판단 기준",
-   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}, "scope": "changed"},
-  {"id": "P2", "action": "keep", "grounds": "..."},
-  {"id": "P3", "action": "withdraw", "grounds": "..."},
-  {"id": "P4", "action": "confirm"}
-], "approve": false}
-\`\`\`
-- 새 지적은 id를 null로 둔다. replacement는 필요할 때만 쓴다.
-- scope는 라운드 2부터 쓴다: 직전 수정에서 바뀐 부분이나 그 영향이면 changed, 원래 있던 내용을 놓친 것이면 missed와 놓친 이유(reason).
-`;
+function reviewJson(rnd, cap, answering) {
+  // 검토 JSON 예시. 이번 라운드에 쓸 수 없는 필드(새 지적, scope)는 넣지 않는다
+  const rows = [];
+  if (cap) {
+    rows.push(`{"id": null, "action": "new", "problem": "...", "grounds": "...", "criterion": "해당 판단 기준",\n`
+      + `   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}`
+      + (rnd > 1 ? `, "scope": "changed", "reason": "(missed일 때만) 놓친 이유"}` : "}"));
+  }
+  if (answering) {
+    rows.push('{"id": "P2", "action": "keep", "grounds": "..."}', '{"id": "P3", "action": "withdraw", "grounds": "..."}',
+      '{"id": "P4", "action": "confirm"}');
+  }
+  let s = "```json\n{\"points\": [" + (rows.length ? "\n  " + rows.join(",\n  ") + "\n" : "") + "], \"approve\": false}\n```\n"
+    + "- 예시 항목을 그대로 복사하지 마라. 응답하는 지적의 id는 위 [응답할 지적]의 ID를 쓴다. 낼 것이 없으면 points는 []로 둔다.\n";
+  if (cap) s += "- 새 지적은 id를 null로 둔다. replacement는 필요할 때만 쓴다.\n";
+  if (cap && rnd > 1) {
+    s += "- scope: 직전 수정에서 바뀐 부분이나 그 영향이면 changed, 원래 있던 내용을 앞서 놓쳤거나 미룬 것이면 missed와 그 이유(reason).\n";
+  }
+  return s;
+}
 
 const REVISE_JSON = `\`\`\`json
 {"responses": [
@@ -561,7 +577,7 @@ async function stepDraft(st, d) {
     + `[${NAMES[y]}의 판단 기준]\n${bullets(st.criteria[y])}`
     + JSON_TAIL + '```json\n{"questions": ["검토자에게 확인받을 미정 사항"]}\n```\n';
   const validate = (body, data) => {
-    if (!body) throw new FormatError("본문(초안)이 비어 있습니다");
+    if (!body) throw new BodyError("본문(초안)이 비어 있습니다");
     return [body, parseQuestions(data)];
   };
   const [draft, qs] = await callStep(st, d, x, "draft", prompt, true, validate);
@@ -587,12 +603,14 @@ async function stepReview(st, d) {
     + `\n[현재 초안 v${st.draft_version}]\n${st.draft}\n`;
   if (rnd === 1) {
     s += "\n초안의 판단 기준 처리(제외·병합)에 이의가 있으면 그것도 지적으로 올려라.\n"
-      + "초안 전체를 끝까지 검토하고, 지적할 것을 이번에 모두 내라. 다음 라운드부터는 그 사이 바뀐 부분과 그 영향에 대한 지적만 낼 수 있다.\n";
+      + "초안 전체를 끝까지 검토하고, 결론에 영향이 큰 순서로 지적하라. 같은 원인의 지적은 하나로 묶어라. "
+      + "다음 라운드부터 새 지적은 그 사이 바뀐 부분과 그 영향이 대상이다. "
+      + "놓쳤거나 개수 상한 때문에 미룬 문제는 그때 scope: missed와 그 이유로 낼 수 있다.\n";
   } else if (cap) {
     const ch = changedSections(st.prev_draft, st.draft);
     s += `\n[직전 수정(v${st.draft_version - 1} → v${st.draft_version})에서 바뀐 절]\n` + (ch.length ? bullets(ch) : "- 없음\n")
       + "새 지적은 바뀐 부분이나 그 영향에 대해서만 낸다(scope: changed). "
-      + "1라운드에 냈어야 할, 원래 있던 내용을 놓친 지적이면 scope: missed와 놓친 이유(reason)를 적어라.\n";
+      + "원래 있던 내용을 앞서 놓쳤거나 개수 상한 때문에 미룬 지적이면 scope: missed와 그 이유(reason)를 적어라.\n";
   }
   if (awaiting.length) {
     s += "\n[응답할 지적] 아래 지적마다 정확히 한 번씩 응답하라.\n";
@@ -612,7 +630,7 @@ async function stepReview(st, d) {
   s += cap
     ? `\n새 지적은 최대 ${cap}개까지 낼 수 있다. 새 지적에는 문제, 근거, 해당 판단 기준을 적고, 필요하면 대체 문안을 제시하라.\n`
     : "\n이번이 마지막 라운드이므로 새 지적은 낼 수 없다.\n";
-  s += "남은 지적이 없고 새 지적도 없을 때만 approve를 true로 하라.\n" + JSON_TAIL + REVIEW_JSON;
+  s += "남은 지적이 없고 새 지적도 없을 때만 approve를 true로 하라.\n" + JSON_TAIL + reviewJson(rnd, cap, awaiting.length > 0);
 
   const validate = (body, data) => {
     const nw = structuredClone(st);
@@ -719,15 +737,17 @@ async function stepRevise(st, d) {
   s += "- 수용(accept): 초안에 반영한다. 지적(또는 대체 문안)대로 반영했으면 applied=as_is, "
     + "고쳐서 반영했으면 applied=modified와 이유(reason)\n"
     + "- 반박(rebut): 반영하지 않고 근거(grounds)를 적는다\n"
-    + "초안 전체를 다시 쓰지 말고, 바꿀 부분만 edits로 내라. target은 현재 초안에서 정확히 한 번 나오는 원문 구간이고"
-    + "(한 번만 나오도록 앞뒤 문맥을 넣는다), text는 그 자리에 들어갈 새 문안이다. edits는 적힌 순서대로 적용된다. "
+    + "초안 전체를 다시 쓰지 말고, 바꿀 부분만 edits로 내라. target은 그 edit을 적용하는 시점의 초안에서 정확히 한 번 나오는 "
+    + "연속 구간을 원문 그대로 복사한 것이고, text는 그 자리에 들어갈 새 문안이다. target은 짧게 잡되, "
+    + "반복되는 줄을 구별하거나 여러 줄을 함께 바꿔야 하면 필요한 앞뒤 문맥을 넣어라. "
+    + "edits는 적힌 순서대로 적용되므로, 뒤의 edit은 앞선 edit을 적용한 결과를 기준으로 써라. "
     + "지적과 관계없는 부분은 바꾸지 마라. 본문에는 지적별 응답 설명만 짧게 써라.\n"
     + "구조가 크게 바뀌어 edits로 나타내기 어려울 때만 full_rewrite를 true로 하고 본문에 수정된 초안 전체를 써라.\n"
     + QUESTIONS_RULE + JSON_TAIL + REVISE_JSON;
 
   let qlog = "";
   const validate = (body, data) => {
-    if (data.full_rewrite === true && !body) throw new FormatError("full_rewrite인데 본문(수정된 초안)이 비어 있습니다");
+    if (data.full_rewrite === true && !body) throw new BodyError("full_rewrite인데 본문(수정된 초안)이 비어 있습니다");
     const nw = structuredClone(st);
     const rs = data.responses;
     if (!Array.isArray(rs)) throw new FormatError("'responses' 목록이 필요합니다");
@@ -1194,7 +1214,8 @@ function concludedText(st) {
   return lines.join("\n") || "(없음)";
 }
 
-function tableText(st) {
+function tableText(st, { forAI = false } = {}) {
+  // forAI: AI에게 보낼 표. 진행자 명령 표기와 유지·누락 횟수를 뺀다
   let out = [];
   for (const [iid, it] of Object.entries(st.items)) {
     const s = it.status;
@@ -1219,14 +1240,18 @@ function tableText(st) {
         if (it.last_rebuttal[w]) out.push(`    ${NAMES[w]}의 남은 차이 지적: ${it.last_rebuttal[w]}`);
       }
       if (it.converge) {
-        out.push(`    수렴 신호 (R${it.converge.round}): ${it.converge.signals.join(", ")} → 진행자 판단 필요 (edit op converge)`);
+        out.push(`    수렴 신호 (R${it.converge.round}): ${it.converge.signals.join(", ")}`
+          + (forAI ? "" : " → 진행자 판단 필요 (edit op converge)"));
       }
       for (const [w, p] of Object.entries(it.wording_proposals)) {
         out.push(`    ${NAMES[w]} 표현 수정안: ${p.revise} (이유: ${p.reason})`);
       }
-      if (it.user_note) out.push(`    다음 라운드 사용자 의견: ${it.user_note}`);
+      if (it.user_note) {
+        out.push(forAI ? `    공방에 전달되지 않은 사용자 의견 (합의된 결론 아님): ${it.user_note}`
+          : `    다음 라운드 사용자 의견: ${it.user_note}`);
+      }
       const counts = WHO.map((w) => `${NAMES[w]} 유지 ${it.keep_streak[w]}연속·누락 ${it.missing[w]}`);
-      if (Object.values(it.keep_streak).some(Boolean) || Object.values(it.missing).some(Boolean)) {
+      if (!forAI && (Object.values(it.keep_streak).some(Boolean) || Object.values(it.missing).some(Boolean))) {
         out.push("    " + counts.join(" / "));
       }
     }
@@ -1449,17 +1474,22 @@ async function jstepRound(st, d) {
       if (it.wording_changed_round === rnd - 1) {
         s += "(지난 라운드에 질문 표현이 바뀌었다. 기존 지적이 아직 유효한지 prior_rebuttal_valid로 밝혀라)\n";
       }
+      if (it.recheck?.round === rnd - 1 && it.recheck.who === who) {
+        s += `(지난 라운드에 너는 철회했지만 ${NAMES[o]}가 같은 라운드에 입장을 바꿔 합의로 닫지 않았다. 바뀐 입장에 다시 답하라)\n`;
+      }
       s += `- 너의 현재 입장: ${posText(it, who)}\n- ${NAMES[o]}의 현재 입장: ${posText(it, o)}\n`
-        + `- ${NAMES[o]}가 지적한 남은 차이: ${it.last_rebuttal[o] || "(없음)"}\n`;
+        + `- ${NAMES[o]}가 지적한 남은 차이: ${it.last_rebuttal[o] || "(없음)"}\n`
+        + `- 네가 지난 라운드에 지적한 남은 차이: ${it.last_rebuttal[who] || "(없음)"}\n`;
       if (it.user_note) s += `- 사용자 의견 (반드시 반영): ${it.user_note}\n`;
     }
     if (st.note_all) s += `\n[사용자 의견 — 모든 쟁점에 반영]\n${st.note_all}\n`;
     s += `\n- ${NAMES[o]}가 지적한 차이가 있으면 responds_to(어떤 지적에 답하는지 요지), `
       + "reply(accept: 그 지적을 받아들임 / counter: 받아들이지 않음), grounds(근거)를 적어라.\n"
       + "- stance: hold(주장 내용 유지. 표현만 다듬었으면 다듬은 문장 전체를 position에 적는다) / "
-      + "change(주장 내용을 바꿈. position에 새 입장 전체) / withdraw(철회: 상대 현재 입장을 받아들임. "
+      + "change(주장 내용을 바꿈. position에 새 입장 전체) / withdraw(철회: 위에 보인 상대 현재 입장을 받아들임. "
       + "받아들이며 붙이는 전제·한정이 있으면 note에 적는다). 입장이 아직 없으면 change로 입장을 적어라.\n"
-      + "- rebuttal: 상대 현재 입장에 아직 남은 차이나 문제. 차이가 없으면 빈 문자열로 둔다.\n"
+      + "- rebuttal: 상대 현재 입장에 아직 남은 차이나 문제. 지난 지적이 아직 유효하면 이번에도 다시 적어라. "
+      + "비우면 그 지적은 해소된 것으로 처리된다.\n"
       + "- stall: 더 공방해도 결론이 나지 않는다고 보면 그 사유를 적어라. 아니면 null.\n"
       + "- new_issues: 결론에 영향을 주는데 쟁점표에 없는 쟁점 (최대 2개). 질문(question), 근거(grounds), "
       + "결론에 미치는 영향(impact)을 적어라. 바로 공방에 넣지 않고 사용자가 추가 여부를 정한다.\n"
@@ -1485,6 +1515,7 @@ async function jstepRound(st, d) {
     const it = st.items[iid];
     const r = Object.fromEntries(WHO.map((w) => [w, own(res[w].items, iid) ?? null]));
     const had = WHO.every((w) => has(it.positions, w));   // 첫 입장을 쓴 것은 수정으로 보지 않는다
+    const shown = Object.fromEntries(WHO.map((w) => [w, own(it.positions, w)?.text]));   // 프롬프트에 보여 준 입장
     for (const w of WHO) {
       const x = r[w];
       if (x == null) {
@@ -1511,9 +1542,14 @@ async function jstepRound(st, d) {
       stall(it, "양측이 모두 철회 (서로 상대 안을 받아들임)");
     } else if (wd.length) {
       const winner = OTHER[wd[0]];
-      it.status = "agreed";
-      it.resolution = { by: "withdraw", who: wd[0], text: it.positions[winner].text, round: rnd };
-      if (r[wd[0]].note) (it.notes ??= {})[wd[0]] = r[wd[0]].note;
+      if (it.positions[winner].text !== shown[winner]) {
+        // 같은 라운드에 상대 입장이 바뀌어 철회한 쪽이 본 문안과 다르다. 합의로 닫지 않고 다음 라운드에 다시 확인한다
+        it.recheck = { who: wd[0], round: rnd };
+      } else {
+        it.status = "agreed";
+        it.resolution = { by: "withdraw", who: wd[0], text: it.positions[winner].text, round: rnd };
+        if (r[wd[0]].note) (it.notes ??= {})[wd[0]] = r[wd[0]].note;
+      }
     } else {
       let reasons = WHO.every((w) => it.keep_streak[w] >= 2) ? ["양측 2라운드 연속 유지"] : [];
       reasons = reasons.concat(WHO.filter((w) => r[w] && r[w].stall).map((w) => `${NAMES[w]}: ${r[w].stall}`));
@@ -1531,6 +1567,7 @@ async function jstepRound(st, d) {
       + (r[w] ? STANCE_KO[r[w].stance] + (r[w].reply === "accept" ? "·지적 수용" : "") : "누락")).join(" / ");
     log += `- ${iid}: ${acts} → ${ITEM_KO[it.status]}`
       + (it.status === "stall_candidate" ? ` (${it.stall_reason})` : "")
+      + (it.recheck?.round === rnd ? " (상대 입장이 바뀌어 철회 미확정)" : "")
       + (it.converge ? ` · 수렴 신호: ${it.converge.signals.join(", ")}` : "") + "\n";
   }
   for (const w of WHO) {
@@ -1547,6 +1584,9 @@ async function jstepRound(st, d) {
   [st.round, st.note_all] = [rnd, null];
   if (rnd >= st.max_rounds) {
     const moved = deferUnresolved(st, "최대 라운드 도달");
+    for (const iid of moved) {
+      if (st.items[iid].recheck?.round === rnd) st.items[iid].reason += " (철회 대상과 상대 수정안이 달라 확인되지 않음)";
+    }
     [st.phase, st.pending_step] = ["final", null];
     log += `\n> 최대 라운드 도달: ${moved.join(", ") || "남은 항목 없음"} 보류 → 최종안 단계\n`;
   } else {
@@ -1563,10 +1603,10 @@ async function jstepFinal(st, d) {
   const prompt = Object.fromEntries(WHO.map((w) => [w, header(st, w) + "\n[최종안 검토]\n" + NO_CODE(st)
     + "진행자가 토의 결과로 최종안을 조립했다. "
     + "진행자는 조립만 하고 새 결론을 더하지 않아야 한다.\n"
-    + `\n[합의점과 확정된 결론]\n${concludedText(st)}\n\n[전체 쟁점표]\n${tableText(st)}\n`
+    + `\n[전체 쟁점표]\n${tableText(st, { forAI: true })}\n`
     + `\n[요구사항별 근거 항목]\n${reqCoverageText(st)}\n`
     + `\n[최종안 v${v}]\n${st.final.draft}\n\n`
-    + "판단 기준은 위 [합의점과 확정된 결론], [전체 쟁점표], [요구사항별 근거 항목]뿐이다. "
+    + "판단 기준은 위 [전체 쟁점표], [요구사항별 근거 항목]뿐이다. "
     + "기록에 없는 내용을 너의 의견으로 채우라고 요구하지 마라. 다음 다섯 가지를 확인하라.\n"
     + "- agreements: 합의된 항목의 결론·단서가 기록 문장대로 반영됐는가\n"
     + "- user_decisions: 사용자 판정이 기록 문장대로 반영됐는가\n"
