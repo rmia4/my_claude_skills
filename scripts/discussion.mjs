@@ -407,22 +407,19 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
 const STEP_KO = { r1: "R1 독립 답변", draft: "통합 초안", review: "검토", revise: "수정", clean: "정리본" };
 const HOW_KO = { applied: "반영", modified: "고쳐 반영", withdrawn: "철회" };
 
-function reviewJson(rnd, cap, answering) {
-  // 검토 JSON 예시. 이번 라운드에 쓸 수 없는 필드(새 지적, scope)는 넣지 않는다
-  const rows = [];
-  if (cap) {
-    rows.push(`{"id": null, "action": "new", "problem": "...", "grounds": "...", "criterion": "해당 판단 기준",\n`
-      + `   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}`
-      + (rnd > 1 ? `, "scope": "changed", "reason": "(missed일 때만) 놓친 이유"}` : "}"));
-  }
+function reviewJson(rnd, answering) {
+  // 검토 JSON 예시. 이번 라운드에 쓸 수 없는 필드(1라운드의 scope, 응답할 지적이 없을 때의 응답)는 넣지 않는다
+  const rows = [`{"id": null, "action": "new", "problem": "...", "grounds": "...", "criterion": "해당 판단 기준",\n`
+    + `   "replacement": {"target": "바꿀 부분 인용", "text": "대체 문안"}`
+    + (rnd > 1 ? `, "scope": "changed", "reason": "(missed일 때만) 놓친 이유"}` : "}")];
   if (answering) {
     rows.push('{"id": "P2", "action": "keep", "grounds": "..."}', '{"id": "P3", "action": "withdraw", "grounds": "..."}',
       '{"id": "P4", "action": "confirm"}');
   }
-  let s = "```json\n{\"points\": [" + (rows.length ? "\n  " + rows.join(",\n  ") + "\n" : "") + "], \"approve\": false}\n```\n"
-    + "- 예시 항목을 그대로 복사하지 마라. 응답하는 지적의 id는 위 [응답할 지적]의 ID를 쓴다. 낼 것이 없으면 points는 []로 둔다.\n";
-  if (cap) s += "- 새 지적은 id를 null로 둔다. replacement는 필요할 때만 쓴다.\n";
-  if (cap && rnd > 1) {
+  let s = "```json\n{\"points\": [\n  " + rows.join(",\n  ") + "\n], \"approve\": false}\n```\n"
+    + "- 예시 항목을 그대로 복사하지 마라. 응답하는 지적의 id는 위 [응답할 지적]의 ID를 쓴다. 낼 것이 없으면 points는 []로 둔다.\n"
+    + "- 새 지적은 id를 null로 둔다. replacement는 필요할 때만 쓴다.\n";
+  if (rnd > 1) {
     s += "- scope: 직전 수정에서 바뀐 부분이나 그 영향이면 changed, 원래 있던 내용을 앞서 놓쳤거나 미룬 것이면 missed와 그 이유(reason).\n";
   }
   return s;
@@ -506,6 +503,12 @@ function pointText(pid, p, extra = "") {
   return s + extra;
 }
 
+// 새 세션으로 불리므로 자기가 앞서 낸 근거도 보여 준다. 첫 항목은 원래 근거, 마지막 항목은 최신 응답과 겹쳐 뺀다
+const priorHistory = (p) => p.history.slice(1, -1)
+  .map((h) => `  R${h.round} ${NAMES[h.who]} ${h.action}` + (h.text ? `: ${h.text}` : "") + "\n").join("");
+const HISTORY_RULE = "이전 근거가 아직 유효한지 현재 초안 기준으로 판단하고, 상대 최신 응답이 무엇을 해소했거나 못 했는지 밝혀라. "
+  + "이전 입장은 바꿔도 된다.\n";
+
 const unresolved = (st) => Object.entries(st.points).filter(([, p]) => p.status !== "closed").map(([pid]) => pid);
 
 function changedSections(prev, cur) {
@@ -540,8 +543,7 @@ function applyEdits(draft, edits) {
 }
 
 function newCap(st) {
-  if (st.round === 1) return 5;
-  return st.round >= st.max_rounds ? 0 : 2;
+  return st.round === 1 ? 5 : 2;
 }
 
 async function stepR1(st, d) {
@@ -606,7 +608,7 @@ async function stepReview(st, d) {
       + "초안 전체를 끝까지 검토하고, 결론에 영향이 큰 순서로 지적하라. 같은 원인의 지적은 하나로 묶어라. "
       + "다음 라운드부터 새 지적은 그 사이 바뀐 부분과 그 영향이 대상이다. "
       + "놓쳤거나 개수 상한 때문에 미룬 문제는 그때 scope: missed와 그 이유로 낼 수 있다.\n";
-  } else if (cap) {
+  } else {
     const ch = changedSections(st.prev_draft, st.draft);
     s += `\n[직전 수정(v${st.draft_version - 1} → v${st.draft_version})에서 바뀐 절]\n` + (ch.length ? bullets(ch) : "- 없음\n")
       + "새 지적은 바뀐 부분이나 그 영향에 대해서만 낸다(scope: changed). "
@@ -621,16 +623,18 @@ async function stepReview(st, d) {
         continue;
       }
       const kind = p.status === "accepted" ? "수용" : "반박";
-      s += pointText(pid, p, `  ${NAMES[x]}의 응답: ${kind}` + (h.text ? ` — ${h.text}` : "") + "\n");
+      s += pointText(pid, p, priorHistory(p) + `  ${NAMES[x]}의 응답: ${kind}` + (h.text ? ` — ${h.text}` : "") + "\n");
     }
     s += `- ${NAMES[x]}가 수용한 지적: 초안에 맞게 반영됐으면 confirm, 반영이 부족하면 keep(근거 필수)\n`
       + `- ${NAMES[x]}가 반박한 지적: 반박을 받아들이면 withdraw(어떤 근거로 철회하는지 필수), `
       + "아니면 keep(재반박 필수)\n쉽게 철회하지 말고, 근거가 충분할 때만 철회하라.\n";
+    if (awaiting.some((pid) => priorHistory(st.points[pid]))) s += HISTORY_RULE;
   }
-  s += cap
-    ? `\n새 지적은 최대 ${cap}개까지 낼 수 있다. 새 지적에는 문제, 근거, 해당 판단 기준을 적고, 필요하면 대체 문안을 제시하라.\n`
-    : "\n이번이 마지막 라운드이므로 새 지적은 낼 수 없다.\n";
-  s += "남은 지적이 없고 새 지적도 없을 때만 approve를 true로 하라.\n" + JSON_TAIL + reviewJson(rnd, cap, awaiting.length > 0);
+  s += "\n" + (rnd >= st.max_rounds
+    ? "이번이 마지막 라운드다. 승인을 막을 만한 문제가 있을 때만 새 지적을 내라. 추가 수정은 없으며, 지적이 남으면 합의 실패로 끝난다. "
+    : "")
+    + `새 지적은 최대 ${cap}개까지 낼 수 있다. 새 지적에는 문제, 근거, 해당 판단 기준을 적고, 필요하면 대체 문안을 제시하라.\n`;
+  s += "남은 지적이 없고 새 지적도 없을 때만 approve를 true로 하라.\n" + JSON_TAIL + reviewJson(rnd, awaiting.length > 0);
 
   const validate = (body, data) => {
     const nw = structuredClone(st);
@@ -732,8 +736,9 @@ async function stepRevise(st, d) {
     + "\n[응답할 지적] 아래 지적마다 정확히 한 번씩 응답하라.\n";
   for (const pid of opens) {
     const p = st.points[pid], h = lastBy(p, y);
-    s += pointText(pid, p, h.action === "keep" ? `  ${NAMES[y]}의 최신 의견: ${h.text}\n` : "");
+    s += pointText(pid, p, priorHistory(p) + (h.action === "keep" ? `  ${NAMES[y]}의 최신 의견: ${h.text}\n` : ""));
   }
+  if (opens.some((pid) => priorHistory(st.points[pid]))) s += HISTORY_RULE;
   s += "- 수용(accept): 초안에 반영한다. 지적(또는 대체 문안)대로 반영했으면 applied=as_is, "
     + "고쳐서 반영했으면 applied=modified와 이유(reason)\n"
     + "- 반박(rebut): 반영하지 않고 근거(grounds)를 적는다\n"
