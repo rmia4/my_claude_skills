@@ -8,13 +8,13 @@
   "plugins": [
     {
       "name": "ai-discussion",
-      "version": "1.1.1",
-      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다. 합의 없이 두 AI의 답을 따로 받아 비교하거나, claude CLI 없이 Codex에게만 물을 수도 있다 (/ai-discussion:manual, /ai-discussion:auto, /ai-discussion:compare, /ai-discussion:codex)",
+      "version": "1.2.0",
+      "description": "Claude와 Codex가 한 주제를 함께 토의하게 하고, 사용자가 판정하거나 두 AI가 스스로 합의하게 진행한다. 합의 없이 두 AI의 답을 따로 받아 비교하거나, claude CLI 없이 Codex에게만, codex CLI 없이 새 세션 Claude에게만 물을 수도 있다 (/ai-discussion:manual, /ai-discussion:auto, /ai-discussion:compare, /ai-discussion:codex, /ai-discussion:claude)",
       "source": {
         "source": "url",
         "url": "https://github.com/rmia4/my_claude_skills.git",
         "ref": "ai_discussion",
-        "sha": "960134ee1429a153a4bacbc7cd54b6e83d122242"
+        "sha": "e707921d64017031259fbb7ef4c5deefae20986f"
       },
       "category": "productivity"
     }
