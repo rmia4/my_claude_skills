@@ -81,7 +81,8 @@ skills/codex/SKILL.md              Codex 단독 모드 절차
 skills/claude/SKILL.md             Claude 단독 모드 절차
 skills/start/SKILL.md              모드를 정해 위 다섯 스킬로 넘기는 입구
 scripts/discussion.mjs             AI 호출·상태 저장·규칙 적용 스크립트
+docs/moderator.md                  모드 스킬이 시작할 때 읽는 진행자 공통 규칙
 docs/                              설계 문서
 ```
 
-스킬은 `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs`로 스크립트를 부르므로, 설치 위치와 관계없이 동작합니다.
+스킬은 `${CLAUDE_PLUGIN_ROOT}/docs/moderator.md`를 먼저 읽고 그 옆의 `scripts/discussion.mjs`를 부르므로, 설치 위치와 관계없이 동작합니다.

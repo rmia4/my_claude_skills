@@ -1,6 +1,6 @@
 ---
 name: start
-description: Claude와 Codex 두 AI의 토의를 시작하거나 이어 가는 입구. 모드가 정해지지 않은 요청을 받아 수동 모드(/ai-discussion:manual), 자동 모드(/ai-discussion:auto), 비교 모드(/ai-discussion:compare), Codex 단독 모드(/ai-discussion:codex), Claude 단독 모드(/ai-discussion:claude) 스킬로 넘긴다. 사용자가 "/ai-discussion:start", "토의", "두 AI에게 토의시켜", "Claude랑 Codex 의견 비교", "토의 이어서" 같은 말을 할 때 쓴다.
+description: Claude와 Codex의 토의를 시작하거나 이어 가는 입구. 모드가 정해지지 않은 요청을 받아 맞는 모드 스킬(manual, auto, compare, codex, claude)로 넘긴다. 사용자가 "토의", "두 AI에게 토의시켜", "토의 이어서" 같은 말을 할 때 쓴다.
 ---
 
 # /ai-discussion:start — 토의 입구

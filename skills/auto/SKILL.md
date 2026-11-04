@@ -1,6 +1,6 @@
 ---
 name: auto
-description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의로 Claude와 Codex가 스스로 합의안을 만든다. 사용자는 시작만 승인하고 결과를 받는다. 사용자가 "/ai-discussion:auto", "AI끼리 합의해서 결론 내", "알아서 정리해 와", "초안 쓰고 서로 검토", "내 개입 없이" 같은 말을 할 때 쓴다.
+description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의로 Claude와 Codex가 스스로 합의안을 만든다. 사용자는 시작만 승인하고 결과를 받는다. 사용자가 "AI끼리 합의해서 결론 내", "초안 쓰고 서로 검토" 같은 말을 할 때 쓴다.
 ---
 
 # /ai-discussion:auto — Claude × Codex 자동 모드 토의
@@ -9,27 +9,19 @@ description: 한 AI가 초안을 쓰고 다른 AI가 검토하는 순차 토의�
 
 ## 실행 전 체크리스트
 
-- 스크립트: `${CLAUDE_PLUGIN_ROOT}/scripts/discussion.mjs` (아래에서 `$SCRIPT`)
-  - 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/scripts/discussion.mjs`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
-- 모든 명령: `node "$SCRIPT" <명령> <id> --mode auto`. **`--mode auto`는 `start`를 포함해 항상 붙인다.** `start`는 `start --spec <파일> --mode auto`로 쓰고, spec의 mode가 다르면 스크립트가 거부한다. 다른 모드의 토의면 스크립트가 거부하고 맞는 스킬을 알려 준다. 그대로 사용자에게 전한다.
-- `<id>`는 `last`(가장 최근 토의) 또는 사용자가 지정한 토의 이름을 쓴다.
-- **AI를 부르는 명령(`start`, `run`)은 Bash `run_in_background: true`로 실행**하고 끝났다는 알림을 기다린다(`start`는 1~3분, `run`은 10~20분). 기다리는 동안 폴링하지 않는다.
+- **먼저 `${CLAUDE_PLUGIN_ROOT}/docs/moderator.md`를 Read하고 그 규칙을 따른다.** `$SCRIPT`, 명령 형식, 중단·재개, 시작 준비가 거기 있다. 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/docs/moderator.md`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
+- AI를 부르는 명령: `start`(1~3분), `run`(10~20분).
 - 명령 출력 끝의 "다음" 줄을 그대로 따른다. CLI가 없거나 spec이 틀리면 스크립트가 알려 준다.
-- spec 파일은 scratchpad 폴더에 만든다. 토의 기록은 현재 작업 폴더의 `discussions/<id>/`에 쌓인다.
 - **AI 본문은 채팅에 옮기지 않는다.** 원문은 `discussions/<id>/raw/...` 파일 링크로만 남긴다.
-- 중단·재개: 출력에 "상태: 중단"이 나오면(`run`의 종료 코드 1) 사유를 알리고, 호출 실패면 `run`을 다시 실행해 그 단계부터 이어 간다. 상태가 헷갈리면 `show`로 다시 본다.
+- 재개 명령: 호출 실패면 `run`(그 단계부터 이어 간다). `run`의 종료 코드 1도 중단이다.
 - 진행자 토큰 절약: 토의는 새 대화에서 시작하길 권한다(이전 작업 문맥이 매 턴 실린다). raw 파일은 Read하지 않고 링크로만 남긴다. 스크립트 출력은 필요한 부분만 인용한다.
-- 설계 문서 `${CLAUDE_PLUGIN_ROOT}/docs/common.md`, `auto-mode-flow.md`는 이 절차로 판단이 서지 않을 때만 읽는다.
 
 ## 0. 준비 (사용자 승인 필요)
 
-1. 주제·배경·요구사항을 정리한다. 두 AI는 대화 맥락을 모르므로 이 내용이 전부다. `/ai-discussion:start`가 넘긴 입력(args)이 있으면 그대로 쓰고 빠진 것만 보완한다. 이미 받은 내용을 다시 묻지 않는다.
-2. args에 진행 중인 토의 id가 있으면 새로 시작하지 않고 `show <id>`로 이어 간다.
-3. 정리한 내용을 채팅 본문으로 보이고 시작 승인을 받는다. 첫 초안 작성자는 토의마다 번갈아 정해진다고 알린다.
-4. 승인되면 spec 파일을 쓰고 `start --spec <파일> --mode auto`를 백그라운드로 실행한다.
-   - spec 필드: `mode`(항상 `"auto"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5), `clean_final`(합의 뒤 토의 경과 표현을 뺀 정리본을 만들지, 기본 true. 표현 정리가 필요 없으면 false로 호출 하나를 줄인다), 선택 `claude_model`(참가 Claude 모델. 사용자가 모델을 지정할 때만 넣는다. 비우면 CLI 기본 모델을 쓴다), 선택 `review_r1`(`"criteria"`면 2라운드부터 검토자에게 자기 독립 답변 대신 판단 기준만 준다. 시험용이며 사용자가 요청할 때만 넣는다), 선택 `fixed_empty_dir`(true면 workdir가 없을 때 토의마다 같은 경로의 빈 폴더를 쓴다. 캐시 측정 실험용이며 사용자가 요청할 때만 넣는다), 선택 `usage`(true면 호출마다 토큰 사용량을 기록하고 상태 출력에 합계를 보인다. 사용자가 토큰 사용량을 알려 달라고 할 때만 넣는다).
-   - `context`에는 큰 파일 전문 대신 필요한 부분만 발췌해 넣고, 발췌마다 원래 경로와 줄 번호를 적는다. 원문 전체가 필요하면 `workdir`를 주어 참가자가 직접 읽게 한다.
-   - start에서 넘어왔으면 `"via": "start"`를 넣는다.
+공통 규칙의 "시작 준비"를 따른다. 시작 승인을 받을 때 첫 초안 작성자는 토의마다 번갈아 정해진다고 알린다.
+
+- spec 필드: `mode`(항상 `"auto"`), `name`(폴더 이름, 10자 이내), `topic`, `background`, `requirements`(목록), `context`(참조 파일 목록), `workdir`(읽기 전용 폴더 또는 null), `max_rounds`(기본 5), `clean_final`(합의 뒤 토의 경과 표현을 뺀 정리본을 만들지, 기본 true. 표현 정리가 필요 없으면 false로 호출 하나를 줄인다).
+- 선택 옵션: `claude_model`, `review_r1`, `fixed_empty_dir`, `usage`.
 
 ## 1. 진행
 
