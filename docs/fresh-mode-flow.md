@@ -38,7 +38,7 @@
 - `start`는 PATH에서 `claude`만 확인한다. `codex`가 없어도 시작한다.
 - `analysis`는 거부한다(비교할 답이 없다).
 - 호출 옵션과 도구는 [common.md](common.md)의 참가 Claude 규칙을 그대로 쓴다. 파일 읽기와 웹 검색만 되고 파일 수정과 명령 실행은 안 된다. 모델은 `claude_model`로 지정할 수 있고 log.md 머리에 남긴다.
-- state는 비교 모드와 같고 `mode`만 `"claude"`다. `turns[].answers`에는 `claude`만 있다.
+- state는 비교 모드와 같고 `mode`만 `"fresh"`다. `turns[].answers`에는 `claude`만 있다.
 
 ## 파일
 

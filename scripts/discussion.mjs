@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Claude(Claude Code) + Codex(Codex CLI) 토의 진행 스크립트 (Node.js 18 이상, 외부 패키지 없음)
 
-설계 문서: docs/common.md, docs/auto-mode-flow.md, docs/manual-mode-flow.md, docs/compare-mode-flow.md, docs/codex-mode-flow.md, docs/claude-mode-flow.md
+설계 문서: docs/common.md, docs/auto-mode-flow.md, docs/manual-mode-flow.md, docs/compare-mode-flow.md, docs/codex-mode-flow.md, docs/fresh-mode-flow.md
 
 명령
   start --spec spec.json   토의를 만들고 첫 단계(R1)를 실행한다
@@ -14,10 +14,10 @@
   Codex 단독 모드 전용: ask(후속 질문), end (claude CLI를 부르지 않는다)
   Claude 단독 모드 전용: ask(후속 질문), end (codex CLI를 부르지 않는다)
   <id>에는 토의 이름, last(가장 최근 토의), 이름 앞부분을 쓸 수 있다
-  --mode manual|auto|compare|codex|claude를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
+  --mode manual|auto|compare|codex|fresh를 붙이면 토의의 mode와 다를 때 거부한다 (모드 스킬은 항상 붙인다)
   start에서는 spec의 mode와 비교한다
 
-spec.json 예 (mode는 필수: "auto", "manual", "compare", "codex" 또는 "claude". via는 선택: 호출한 진입점, 예 "start")
+spec.json 예 (mode는 필수: "auto", "manual", "compare", "codex" 또는 "fresh". via는 선택: 호출한 진입점, 예 "start")
   {"mode": "auto", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["배경.md"], "workdir": "C:/dev/myproject",
    "max_rounds": 5, "clean_final": true}   (clean_final은 자동 모드 전용, 기본 true)
@@ -58,9 +58,10 @@ const BACKOFF_SEC = [10, 30];   // 재시도마다 앞서 기다리는 초 (RETR
 const NAMES = { claude: "Claude", codex: "Codex" };
 const OTHER = { claude: "codex", codex: "claude" };
 const WHO = Object.keys(NAMES);
-const isSolo = (mode) => has(NAMES, mode);   // 단독 모드는 mode가 참가 AI 이름이다
+const SOLO = { codex: "codex", fresh: "claude" };   // 단독 모드와 그 모드가 부르는 AI
+const isSolo = (mode) => has(SOLO, mode);
 const isQna = (mode) => mode === "compare" || isSolo(mode);   // 질문에 답만 받는 모드 (비교 모드 단계를 함께 쓴다)
-const members = (st) => (isSolo(st.mode) ? [st.mode] : WHO);   // 단독 모드는 그 AI만 부른다
+const members = (st) => (isSolo(st.mode) ? [SOLO[st.mode]] : WHO);   // 단독 모드는 그 AI만 부른다
 
 
 // ── 기본 도구 ────────────────────────────────────────────────────────
@@ -347,7 +348,7 @@ async function callStep(st, d, who, tag, prompt, needsJson, validate, lenient = 
   /* AI 한 번 호출 → 원문 저장 → 파싱·검사. 형식 오류는 JSON만 한 번 다시 받는다.
      lenient가 있으면 재시도도 실패했을 때 멈추지 않고 lenient(본문, 읽은 JSON 또는 null, 오류)를 돌려준다 */
   const once = async (p, attempt) => {
-    const fakeFn = { auto: fakeAuto, manual: fakeManual, compare: fakeCompare, codex: fakeCompare, claude: fakeCompare }[st.mode];
+    const fakeFn = { auto: fakeAuto, manual: fakeManual, compare: fakeCompare, codex: fakeCompare, fresh: fakeCompare }[st.mode];
     const fake = st.dry_run ? () => fakeFn(st, tag, who, attempt) : null;
     let r;
     try {
@@ -2307,15 +2308,15 @@ function endCompare(a) {
 
 const MODES = {
   auto: [STEPS, STEP_KO, printStatus], manual: [J_STEPS, J_STEP_KO, printManual],
-  compare: [C_STEPS, C_STEP_KO, printCompare], codex: [C_STEPS, C_STEP_KO, printCompare], claude: [C_STEPS, C_STEP_KO, printCompare],   // 단독 모드는 비교 모드 단계를 그 AI만으로 쓴다
+  compare: [C_STEPS, C_STEP_KO, printCompare], codex: [C_STEPS, C_STEP_KO, printCompare], fresh: [C_STEPS, C_STEP_KO, printCompare],   // 단독 모드는 비교 모드 단계를 그 AI만으로 쓴다
 };
-const MODE_KO = { auto: "자동 모드", manual: "수동 모드", compare: "비교 모드", codex: "Codex 단독 모드", claude: "Claude 단독 모드" };
+const MODE_KO = { auto: "자동 모드", manual: "수동 모드", compare: "비교 모드", codex: "Codex 단독 모드", fresh: "Claude 단독 모드" };
 const OLD_MODES = { consensus: "auto", judge: "manual" };
 const SPEC_EXAMPLE = `spec 예:
   {"mode": "manual", "name": "짧은이름", "topic": "...", "background": "...",
    "requirements": ["..."], "context": ["참조파일.md"], "workdir": null, "max_rounds": 6}
   비교 모드: {"mode": "compare", "name": "짧은이름", "topic": "첫 질문", "background": "...", "context": [], "workdir": null}
-  단독 모드: 비교 모드와 같고 mode만 "codex" 또는 "claude"`;
+  단독 모드: 비교 모드와 같고 mode만 "codex" 또는 "fresh"`;
 
 function checkMode(a) {
   // 모드 스킬이 다른 모드의 토의를 이어 가지 않도록 막는다 (last와 지정 id 모두 실제 토의를 찾은 뒤 비교)
@@ -2512,7 +2513,7 @@ const COMMANDS = {
   "final-fix": { help: "최종안 표현 지적 반영 (재검토 없음)", fn: cmdFinalFix, args: [ID], opts: FILE_OPT("최종안 Markdown 파일") },
   confirm: { help: "최종 확정", fn: cmdConfirm, args: [ID] },
   end: { help: "판정 없이 종료 (비교·단독 모드: 토의 종료)", fn: cmdEnd, args: [ID] },
-  // 비교 모드 전용 명령 (docs/compare-mode-flow.md). ask는 단독 모드도 쓴다 (docs/codex-mode-flow.md, docs/claude-mode-flow.md)
+  // 비교 모드 전용 명령 (docs/compare-mode-flow.md). ask는 단독 모드도 쓴다 (docs/codex-mode-flow.md, docs/fresh-mode-flow.md)
   ask: { help: "후속 질문에 두 AI가 따로 답함 (비교 모드. 단독 모드는 그 AI만)", fn: cmdAsk, args: [ID, { name: "text", optional: true, help: "질문 (또는 --file)" }], opts: { file: { help: "질문 Markdown 파일" } } },
   analysis: { help: "진행자 분석 기록 (비교 모드)", fn: cmdAnalysis, args: [ID], opts: { ...FILE_OPT("분석 Markdown 파일"), turn: { help: "차례 번호 (기본: 마지막)" } } },
 };

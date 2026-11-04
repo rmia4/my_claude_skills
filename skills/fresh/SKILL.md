@@ -1,9 +1,9 @@
 ---
-name: claude
+name: fresh
 description: codex CLI를 부르지 않고 사용자가 낸 질문·지시를 새 세션 Claude에게만 보내 답을 받는다. 토의·합의·비교 없이 Claude 답을 그대로 전한다. 사용자가 "Codex 없이 Claude만", "새 세션 Claude한테 물어봐" 같은 말을 할 때 쓴다.
 ---
 
-# /ai-discussion:claude — Claude 단독 모드
+# /ai-discussion:fresh — Claude 단독 모드
 
 너는 이 질의의 **진행자**다. 답하는 쪽은 새 세션으로 호출되는 Claude 하나이고, 너와 다른 세션이다. `codex` CLI는 부르지 않으므로 PATH에 없어도 된다. 너는 질문을 정리해 넘기고 새 세션 Claude의 답을 그대로 전한다. 절차는 스크립트가 처리한다.
 
@@ -24,7 +24,7 @@ description: codex CLI를 부르지 않고 사용자가 낸 질문·지시를 �
 
 공통 규칙의 "시작 준비"를 따른다.
 
-- spec 필드: `mode`(항상 `"claude"`), `name`(폴더 이름, 10자 이내), `topic`(첫 질문), `background`, `requirements`(목록), `context`(새 세션 Claude에게 넘길 참조 파일 목록), `workdir`(새 세션 Claude가 읽기 전용으로 볼 폴더 또는 null).
+- spec 필드: `mode`(항상 `"fresh"`), `name`(폴더 이름, 10자 이내), `topic`(첫 질문), `background`, `requirements`(목록), `context`(새 세션 Claude에게 넘길 참조 파일 목록), `workdir`(새 세션 Claude가 읽기 전용으로 볼 폴더 또는 null).
 - 선택 옵션: `claude_model`, `usage`.
 
 ## 1. 답변 뒤
