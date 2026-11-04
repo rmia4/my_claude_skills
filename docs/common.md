@@ -4,6 +4,20 @@
 - 적용: [manual-mode-flow.md](manual-mode-flow.md)(수동 모드), [auto-mode-flow.md](auto-mode-flow.md)(자동 모드), [compare-mode-flow.md](compare-mode-flow.md)(비교 모드), [codex-mode-flow.md](codex-mode-flow.md)(Codex 단독 모드), [claude-mode-flow.md](claude-mode-flow.md)(Claude 단독 모드)
 - 이 문서의 규칙은 모든 모드에 똑같이 적용한다. Codex 단독 모드는 Codex만 부르므로 참가 Claude 규칙은 쓰지 않고, Claude 단독 모드는 Claude만 부르므로 참가 Codex 규칙은 쓰지 않는다. 모드마다 다른 규칙은 각 모드 문서에만 적는다. 한 모드 문서의 규칙을 다른 모드에 가져다 쓰지 않는다.
 
+## 목차
+
+- 원칙
+- 호출 방식
+- 파일 구성
+- 모드 확인
+- 응답 파싱
+- 형식 오류 재시도
+- 호출 실패
+- 토큰 사용량 기록
+- 저장 시점과 재개
+- 원문 표시 범위
+- dry-run
+
 ## 원칙
 
 - 두 AI는 새 세션으로 대등하게 호출한다(`claude -p`, `codex exec`).

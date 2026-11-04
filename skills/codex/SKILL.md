@@ -10,6 +10,7 @@ description: claude CLI를 부르지 않고 사용자가 낸 질문·지시를 C
 ## 실행 전 체크리스트
 
 - **먼저 `${CLAUDE_PLUGIN_ROOT}/docs/moderator.md`를 Read하고 그 규칙을 따른다.** `$SCRIPT`, 명령 형식, 중단·재개, 시작 준비가 거기 있다. 경로가 `$`와 중괄호로 된 변수 이름으로 시작하면 채워지지 않은 것이다. `~/.claude/plugins/cache` 아래에서 `**/ai-discussion/**/docs/moderator.md`를 Glob으로 찾아 그 절대 경로를 쓴다(여러 개면 가장 최근 것). 찾지 못하면 플러그인을 다시 설치하라고 사용자에게 알린다.
+- 대화가 요약(컴팩션)된 뒤에 이어 가면 이 스킬을 Skill 도구로 다시 부르고(args에 토의 id를 넣는다), `moderator.md`를 다시 Read한 다음 `show`로 상태를 본다. 컴팩션 뒤에는 이 스킬의 앞부분만 남을 수 있다.
 - AI를 부르는 명령: `start`, `ask`, `next` (1~3분).
 - 재개 명령: `next`.
 
